@@ -42,10 +42,85 @@ return function(ctx, Lib)
 		fx.dof.FarIntensity, fx.dof.InFocusRadius, fx.dof.NearIntensity = far, focusRadius, near
 	end
 
+	------------------------------------------------------------------
+	-- Realism: Roblox's own renderer pushed as far as it goes from a script —
+	-- Future lighting (per-pixel light + real dynamic shadows), reflections,
+	-- and atmosphere depth. (No script can do true ReShade / ray tracing; this
+	-- is the built-in ceiling.) Originals are snapshotted so Default restores.
+	------------------------------------------------------------------
+	local realismSaved
+	local function snapshotRealism()
+		if not realismSaved then
+			realismSaved = {
+				Technology = Lighting.Technology,
+				EnvironmentSpecularScale = Lighting.EnvironmentSpecularScale,
+				EnvironmentDiffuseScale = Lighting.EnvironmentDiffuseScale,
+			}
+		end
+	end
+	local function setTech(tech)
+		snapshotRealism()
+		pcall(function() Lighting.Technology = tech end)
+	end
+	local function setReflections(v)
+		snapshotRealism()
+		pcall(function()
+			Lighting.EnvironmentSpecularScale = v
+			Lighting.EnvironmentDiffuseScale = v
+		end)
+	end
+	-- Shared with the World tab's haze: reuse the existing Atmosphere if present.
+	local function getAtmosphere()
+		local a = Lighting:FindFirstChildOfClass("Atmosphere")
+		if not a then
+			a = Instance.new("Atmosphere")
+			a.Name = "Mirage_Atmosphere"
+			a.Parent = Lighting
+		end
+		return a
+	end
+	local function restoreRealism()
+		if realismSaved then
+			pcall(function() Lighting.Technology = realismSaved.Technology end)
+			pcall(function() Lighting.EnvironmentSpecularScale = realismSaved.EnvironmentSpecularScale end)
+			pcall(function() Lighting.EnvironmentDiffuseScale = realismSaved.EnvironmentDiffuseScale end)
+		end
+		local a = Lighting:FindFirstChildOfClass("Atmosphere")
+		if a then a.Density = 0; a.Glare = 0; a.Haze = 0 end
+	end
+
 	local PRESETS = {
 		Default = function()
 			cc(0, 0, 0); bloom(0); fx.blur.Size = 0; dof(0, 50, 0)
 			fx.sunRays.Intensity, fx.sunRays.Spread = 0, 0.5
+			restoreRealism()
+		end,
+		Realistic = function()
+			setTech(Enum.Technology.Future)
+			setReflections(0.6)
+			local a = getAtmosphere()
+			a.Density, a.Offset, a.Glare, a.Haze = 0.35, 0.25, 0.2, 1.5
+			a.Color = Color3.fromRGB(199, 170, 107)
+			a.Decay = Color3.fromRGB(106, 112, 125)
+			cc(0.0, 0.12, 0.08, Color3.fromRGB(255, 248, 240)); bloom(0.6, 20)
+			fx.blur.Size = 0; dof(0.25, 40, 0)
+			fx.sunRays.Intensity, fx.sunRays.Spread = 0.2, 0.6
+		end,
+		Ultra = function()
+			setTech(Enum.Technology.Future)
+			setReflections(0.9)
+			local a = getAtmosphere()
+			a.Density, a.Offset, a.Glare, a.Haze = 0.42, 0.3, 0.35, 2.2
+			a.Color = Color3.fromRGB(204, 171, 99)
+			a.Decay = Color3.fromRGB(92, 100, 120)
+			cc(0.02, 0.18, 0.12, Color3.fromRGB(255, 244, 232)); bloom(1.0, 26)
+			fx.blur.Size = 0; dof(0.45, 32, 0.05)
+			fx.sunRays.Intensity, fx.sunRays.Spread = 0.35, 0.75
+		end,
+		Cyberpunk = function()
+			cc(0.0, 0.2, 0.35, Color3.fromRGB(180, 120, 255)); bloom(1.4, 30)
+			fx.blur.Size = 0; dof(0.3, 35, 0)
+			fx.sunRays.Intensity, fx.sunRays.Spread = 0.4, 0.8
 		end,
 		Cinematic = function()
 			cc(-0.02, 0.15, -0.1, Color3.fromRGB(255, 244, 230)); bloom(0.7, 18)
@@ -86,8 +161,9 @@ return function(ctx, Lib)
 	PRESETS.Default()
 
 	local presetOrder = {
-		"Default", "Cinematic", "Noir", "Warm",
-		"Cold", "Dreamy", "Horror", "Vintage", "Vaporwave",
+		"Default", "Realistic", "Ultra", "Cinematic",
+		"Noir", "Warm", "Cold", "Dreamy",
+		"Horror", "Vintage", "Vaporwave", "Cyberpunk",
 	}
 	local defs = {}
 	for _, name in ipairs(presetOrder) do
@@ -114,6 +190,18 @@ return function(ctx, Lib)
 	Lib.addSlider(page, order, "Contrast", -1, 1, 0, function(v) fx.colorCorrection.Contrast = v end); order += 1
 	Lib.addSlider(page, order, "Saturation", -1, 1, 0, function(v) fx.colorCorrection.Saturation = v end); order += 1
 	Lib.addSlider(page, order, "Sun Rays", 0, 1, 0, function(v) fx.sunRays.Intensity = v end); order += 1
+
+	Lib.addLabel(page, order, "Realism (Roblox renderer — built-in ceiling)"); order += 1
+	Lib.addButtonRow(page, order, {
+		{ text = "Voxel",  width = 84, callback = function() setTech(Enum.Technology.Voxel) end },
+		{ text = "Shadow", width = 84, callback = function() setTech(Enum.Technology.ShadowMap) end },
+		{ text = "Future", width = 84, callback = function() setTech(Enum.Technology.Future) end },
+	}); order += 1
+	Lib.addSlider(page, order, "Reflections", 0, 1, 0, function(v) setReflections(v) end); order += 1
+	Lib.addSlider(page, order, "Atmosphere Density", 0, 1, 0, function(v)
+		getAtmosphere().Density = v
+	end); order += 1
+	Lib.addSlider(page, order, "Depth of Field", 0, 1, 0, function(v) dof(v, 35, 0) end); order += 1
 
 	-- expose for Extras' Reset All
 	ctx.shaderReset = PRESETS.Default

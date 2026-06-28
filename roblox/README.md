@@ -56,10 +56,15 @@ as well as via the scrollbar.
 - **Free Cam** — detaches the camera and hides all UI for a clean shot; the
   launcher is hidden while flying, with an always-there on-screen Exit button.
   Includes a **rule-of-thirds framing grid** toggle for composing shots.
-- **Shaders** — preset buttons (Default, Cinematic, Noir, Warm, Cold, Dreamy,
-  Horror, Vintage, Vaporwave) plus manual Bloom / Blur / Brightness / Contrast /
-  Saturation / Sun Rays sliders. Bloom uses a low threshold so the glow is
-  actually visible.
+- **Shaders** — preset buttons (Default, **Realistic**, **Ultra**, Cinematic,
+  Noir, Warm, Cold, Dreamy, Horror, Vintage, Vaporwave, Cyberpunk) plus manual
+  Bloom / Blur / Brightness / Contrast / Saturation / Sun Rays sliders. A
+  **Realism** block drives the Roblox renderer to its built-in ceiling —
+  lighting technology (Voxel / ShadowMap / **Future** = per-pixel light + real
+  dynamic shadows), Reflections, Atmosphere Density, and Depth of Field. Bloom
+  uses a low threshold so the glow is actually visible. (A script can't do true
+  ReShade / ray tracing — that needs an external injector — so this maxes out
+  the engine's own lighting + post.) Default restores the snapshotted originals.
 - **Fonts** — click a font (35+ options) to re-skin the hub, every other UI
   under `PlayerGui`, and chat (window + bubbles via `TextChatService`). Inert
   until you pick one, then a single `DescendantAdded` listener catches new UI —
