@@ -883,13 +883,14 @@ local fontPage = addTab("Fonts", 3)
 layoutColumn(fontPage)
 
 make("TextLabel", {
-	Size = UDim2.new(1, 0, 0, 18),
+	Size = UDim2.new(1, 0, 0, 32),
 	BackgroundTransparency = 1,
 	Font = bodyFont,
 	TextSize = 13,
 	TextColor3 = THEME.SubText,
+	TextWrapped = true,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	Text = "Pick a font for the hub UI:",
+	Text = "Pick a font — applies to the hub, every other UI in the game, and chat (window + bubbles):",
 	LayoutOrder = 1,
 }, fontPage)
 
@@ -909,8 +910,9 @@ local fontScroll = make("ScrollingFrame", {
 }, fontPage)
 make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, fontScroll)
 
-local applyGlobally = false
+local selectedFont = Enum.Font.Gotham
 
+-- Applies once to every TextLabel/TextButton/TextBox already in the hub.
 local function setFontEverywhereInHub(fontEnum)
 	for _, descendant in ipairs(gui:GetDescendants()) do
 		if descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
@@ -925,6 +927,8 @@ local function applyFontToInstance(inst, fontEnum)
 	end
 end
 
+-- One-shot, single pass over existing UI — cheap even on big games since it
+-- only runs when you actually pick a font, never on a loop.
 local function applyFontGlobally(fontEnum)
 	for _, screenGui in ipairs(PlayerGui:GetChildren()) do
 		if screenGui:IsA("ScreenGui") and screenGui.Name ~= "CinematicHubGui" then
@@ -935,20 +939,26 @@ local function applyFontGlobally(fontEnum)
 	end
 end
 
-local currentFontConnection = nil
-local function watchNewUIForFont(fontEnum)
-	if currentFontConnection then
-		currentFontConnection:Disconnect()
-		currentFontConnection = nil
-	end
-	if not applyGlobally then return end
-	currentFontConnection = PlayerGui.DescendantAdded:Connect(function(descendant)
-		if descendant:Parent and descendant.Parent:IsDescendantOf(gui) then return end
-		applyFontToInstance(descendant, fontEnum)
+-- Chat uses its own font config (TextChatService) instead of per-label
+-- scanning, so bubble chat / chat window text updates instantly with zero
+-- extra per-frame cost.
+local function applyFontToChat(fontEnum)
+	local TextChatService = game:GetService("TextChatService")
+	pcall(function()
+		TextChatService.ChatWindowConfiguration.FontFace = Font.fromEnum(fontEnum)
+	end)
+	pcall(function()
+		TextChatService.BubbleChatConfiguration.Font = fontEnum
 	end)
 end
 
-local selectedFont = Enum.Font.Gotham
+-- Single persistent watcher (not re-created per click) so newly spawned UI
+-- — inventories, dialogs, other chat bubbles — picks up whichever font is
+-- currently selected, without scanning anything repeatedly.
+local fontWatchConnection = PlayerGui.DescendantAdded:Connect(function(descendant)
+	if descendant:IsDescendantOf(gui) then return end
+	applyFontToInstance(descendant, selectedFont)
+end)
 
 for i, fontName in ipairs(FONT_OPTIONS) do
 	local ok, fontEnum = pcall(function() return Enum.Font[fontName] end)
@@ -967,24 +977,11 @@ for i, fontName in ipairs(FONT_OPTIONS) do
 			selectedFont = fontEnum
 			hubFont, bodyFont = fontEnum, fontEnum
 			setFontEverywhereInHub(fontEnum)
-			if applyGlobally then
-				applyFontGlobally(fontEnum)
-				watchNewUIForFont(fontEnum)
-			end
+			applyFontGlobally(fontEnum)
+			applyFontToChat(fontEnum)
 		end)
 	end
 end
-
-addToggleRow(fontPage, 3, "Apply to all game UI too", false, function(state)
-	applyGlobally = state
-	if state then
-		applyFontGlobally(selectedFont)
-		watchNewUIForFont(selectedFont)
-	elseif currentFontConnection then
-		currentFontConnection:Disconnect()
-		currentFontConnection = nil
-	end
-end)
 
 ------------------------------------------------------------------------
 -- ============================ WORLD TAB ============================
@@ -1021,6 +1018,95 @@ RunService.Heartbeat:Connect(function()
 		Lighting.ClockTime = Lighting.ClockTime
 	end
 end)
+
+------------------------------------------------------------------------
+-- ============================ EXTRAS TAB ============================
+------------------------------------------------------------------------
+local extrasPage = addTab("Extras", 5)
+layoutColumn(extrasPage)
+
+-- Letterbox bars: pure GUI overlay, no per-frame cost once sized.
+local letterboxLayer = make("Frame", {
+	Name = "Letterbox",
+	Size = UDim2.new(1, 0, 1, 0),
+	BackgroundTransparency = 1,
+	Visible = false,
+}, gui)
+
+local topBar = make("Frame", {
+	Size = UDim2.new(1, 0, 0, 0),
+	BackgroundColor3 = Color3.new(0, 0, 0),
+	BorderSizePixel = 0,
+}, letterboxLayer)
+local bottomBar = make("Frame", {
+	Size = UDim2.new(1, 0, 0, 0),
+	Position = UDim2.new(0, 0, 1, 0),
+	AnchorPoint = Vector2.new(0, 1),
+	BackgroundColor3 = Color3.new(0, 0, 0),
+	BorderSizePixel = 0,
+}, letterboxLayer)
+
+local letterboxThickness = 0.12
+local function applyLetterboxSize()
+	topBar.Size = UDim2.new(1, 0, letterboxThickness, 0)
+	bottomBar.Size = UDim2.new(1, 0, letterboxThickness, 0)
+end
+applyLetterboxSize()
+
+addToggleRow(extrasPage, 1, "Letterbox Bars", false, function(state)
+	letterboxLayer.Visible = state
+end)
+
+addSlider(extrasPage, 2, "Letterbox Size", 0.02, 0.25, letterboxThickness, function(v)
+	letterboxThickness = v
+	applyLetterboxSize()
+end)
+
+-- Hide nameplates / health bars over characters' heads for clean shots.
+local nameplatesHidden = false
+local function setNameplateVisible(humanoid, visible)
+	pcall(function()
+		humanoid.DisplayDistanceType = visible
+			and Enum.HumanoidDisplayDistanceType.Viewer
+			or Enum.HumanoidDisplayDistanceType.None
+	end)
+end
+
+local function forEachHumanoid(callback)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		local char = plr.Character
+		local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+		if humanoid then callback(humanoid) end
+	end
+end
+
+addToggleRow(extrasPage, 3, "Hide Nameplates/Healthbars", false, function(state)
+	nameplatesHidden = state
+	forEachHumanoid(function(h) setNameplateVisible(h, not state) end)
+end)
+
+Players.PlayerAdded:Connect(function(plr)
+	plr.CharacterAdded:Connect(function(char)
+		if nameplatesHidden then
+			local humanoid = char:WaitForChild("Humanoid")
+			setNameplateVisible(humanoid, false)
+		end
+	end)
+end)
+
+addButtonRow(extrasPage, 4, {
+	{ text = "Reset All", callback = function()
+		PRESETS.Default()
+		letterboxLayer.Visible = false
+		nameplatesHidden = false
+		forEachHumanoid(function(h) setNameplateVisible(h, true) end)
+		Lighting.ClockTime = 14
+		Workspace.CurrentCamera.FieldOfView = 70
+		local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+		if atmosphere then atmosphere.Haze = 0 end
+		worldPage:SetAttribute("FreezeTime", false)
+	end },
+})
 
 ------------------------------------------------------------------------
 -- Wire up launcher / close / keybind, default tab
