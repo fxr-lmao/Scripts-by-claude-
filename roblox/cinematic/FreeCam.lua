@@ -28,6 +28,9 @@ return function(ctx, Lib)
 		stickVector = Vector2.new(0, 0),
 		touchUp = false, touchDown = false, lookTouchId = nil,
 		connections = {},
+		-- Smooth ("cinematic") flight: integrate a velocity that eases toward the
+		-- input instead of snapping, so the camera glides in and coasts to a stop.
+		smooth = false, smoothResp = 3.8, velocity = Vector3.new(),
 	}
 
 	local fcMobileLayer = nil
@@ -67,6 +70,15 @@ return function(ctx, Lib)
 	local statusLabel = Lib.addLabel(page, 1, "Status: OFF  (toggle key: P)")
 	local toggleButton
 
+	-- Speed sliders (tab + on-screen overlay) are kept in sync; scroll updates
+	-- both. Forward-declared so the input/render/enter/exit handlers can reach
+	-- them even though the overlay is built further down.
+	local tabSpeedSlider, speedSlider, speedOverlay
+	local function updateSpeedUI(v)
+		if tabSpeedSlider then tabSpeedSlider.set(v, false) end
+		if speedSlider then speedSlider.set(v, false) end
+	end
+
 	local function setButtonState()
 		if FC.enabled then
 			toggleButton.Text = "Exit Free Cam"
@@ -101,9 +113,21 @@ return function(ctx, Lib)
 		if FC.keysDown[Enum.KeyCode.LeftShift] or FC.keysDown[Enum.KeyCode.RightShift] then speed *= FC.boost end
 		if FC.keysDown[Enum.KeyCode.LeftControl] or FC.keysDown[Enum.KeyCode.RightControl] then speed *= FC.slow end
 
-		if move.Magnitude > 0 then
-			FC.pos += rotation:VectorToWorldSpace(move) * speed * dt
+		local mag = move.Magnitude
+		if mag > 1 then move /= mag end -- clamp diagonals, but keep analog stick < 1
+
+		local desiredVel = Vector3.new()
+		if mag > 0 then
+			desiredVel = rotation:VectorToWorldSpace(move) * speed
 		end
+		if FC.smooth then
+			-- frame-rate-independent ease toward the target velocity
+			local alpha = 1 - math.exp(-dt * FC.smoothResp)
+			FC.velocity = FC.velocity:Lerp(desiredVel, alpha)
+		else
+			FC.velocity = desiredVel
+		end
+		FC.pos += FC.velocity * dt
 		FC.camera.CFrame = CFrame.new(FC.pos) * rotation
 	end
 
@@ -118,6 +142,12 @@ return function(ctx, Lib)
 			local d = input.Delta
 			FC.yaw   = FC.yaw - d.X * FC.touchLookSens * 0.01
 			FC.pitch = math.clamp(FC.pitch - d.Y * FC.touchLookSens * 0.01, -1.54, 1.54)
+		elseif input.UserInputType == Enum.UserInputType.MouseWheel then
+			-- Adjust fly speed while flying (the cursor is locked, so scroll is
+			-- the desktop speed control); keeps the sliders in sync.
+			FC.moveSpeed = math.clamp(FC.moveSpeed * (1 + input.Position.Z * 0.1),
+				FC.minSpeed, FC.maxSpeed)
+			updateSpeedUI(FC.moveSpeed)
 		end
 	end
 
@@ -145,6 +175,7 @@ return function(ctx, Lib)
 		FC.pitch = math.asin(math.clamp(look.Y, -1, 1))
 
 		FC.camera.CameraType = Enum.CameraType.Scriptable
+		FC.velocity = Vector3.new() -- start from rest, no leftover momentum
 
 		-- Freeze the character so WASD/physics don't walk it off while you fly.
 		-- Disable input-driven movement first, then anchor against stray physics.
@@ -161,6 +192,7 @@ return function(ctx, Lib)
 		ctx.hub.Visible = false
 		ctx.launcher.Visible = false
 		if exitButton then exitButton.Visible = true end
+		if speedOverlay then speedOverlay.Visible = true end
 		if fcMobileLayer then fcMobileLayer.Visible = true end
 		setButtonState()
 
@@ -180,6 +212,7 @@ return function(ctx, Lib)
 		Lib.setGameUIHidden(false, ctx.gui)
 		ctx.launcher.Visible = true
 		if exitButton then exitButton.Visible = false end
+		if speedOverlay then speedOverlay.Visible = false end
 		if fcMobileLayer then fcMobileLayer.Visible = false end
 		setButtonState()
 
@@ -227,6 +260,27 @@ return function(ctx, Lib)
 	corner(exitButton, 8)
 	exitButton.Activated:Connect(toggle)
 
+	-- On-screen speed control shown while flying, so speed is adjustable without
+	-- reopening the hub. Touch-draggable (mobile); on desktop the mouse is locked
+	-- so the scroll wheel drives it and this just reflects/shows the value.
+	speedOverlay = make("Frame", {
+		Name = "FreeCamSpeed",
+		Size = UDim2.new(0, 240, 0, 46),
+		Position = UDim2.new(0.5, -120, 0, 58), -- just under the exit button
+		BackgroundColor3 = THEME.Panel,
+		BackgroundTransparency = 0.25,
+		Visible = false,
+	}, ctx.gui)
+	corner(speedOverlay, 8)
+	make("UIPadding", {
+		PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
+		PaddingTop = UDim.new(0, 2),
+	}, speedOverlay)
+	speedSlider = Lib.addSlider(speedOverlay, 1, "Speed", FC.minSpeed, FC.maxSpeed, FC.moveSpeed, function(v)
+		FC.moveSpeed = v
+		if tabSpeedSlider then tabSpeedSlider.set(v, false) end
+	end)
+
 	toggleButton = make("TextButton", {
 		Size = UDim2.new(1, 0, 0, 40),
 		BackgroundColor3 = THEME.Accent,
@@ -240,8 +294,9 @@ return function(ctx, Lib)
 	toggleButton.Activated:Connect(toggle)
 	setButtonState()
 
-	Lib.addSlider(page, 3, "Move Speed", FC.minSpeed, FC.maxSpeed, FC.moveSpeed, function(v)
+	tabSpeedSlider = Lib.addSlider(page, 3, "Move Speed", FC.minSpeed, FC.maxSpeed, FC.moveSpeed, function(v)
 		FC.moveSpeed = v
+		if speedSlider then speedSlider.set(v, false) end
 	end)
 
 	-- Rule-of-thirds framing grid overlay (handy for composing shots; pairs well
@@ -269,9 +324,20 @@ return function(ctx, Lib)
 		gridLayer.Visible = state
 	end)
 
-	Lib.addLabel(page, 5,
-		"Desktop: WASD/arrows move, mouse look, Q/E down/up, Shift boost, Ctrl slow.\n"
-		.. "Mobile: left thumbstick to move, drag right side of screen to look.", 60)
+	-- Smooth / cinematic flight: momentum so movement glides instead of snapping.
+	Lib.addToggleRow(page, 5, "Smooth Flight (cinematic glide)", false, function(state)
+		FC.smooth = state
+		if not state then FC.velocity = Vector3.new() end
+	end)
+	Lib.addSlider(page, 6, "Glide Smoothness", 0, 1, 0.6, function(v)
+		-- 0 = snappy (responsive), 1 = very floaty / icy.
+		FC.smoothResp = 8 - v * 7
+	end)
+
+	Lib.addLabel(page, 7,
+		"Desktop: WASD/arrows move, mouse look, Q/E down/up, Shift boost, Ctrl slow,\n"
+		.. "scroll = speed. Mobile: left thumbstick to move, drag right side to look.\n"
+		.. "Smooth Flight adds momentum so the camera glides like on ice.", 74)
 
 	------------------------------------------------------------------
 	-- Mobile controls

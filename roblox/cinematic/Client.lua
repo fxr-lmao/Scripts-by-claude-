@@ -49,12 +49,30 @@ return function(ctx, Lib)
 
 	local skinStatus = Lib.addLabel(page, 3, "", 18)
 
+	-- The avatar we want held on this character. Re-applied on respawn so a
+	-- server-driven respawn doesn't silently wipe it.
+	local desiredDescription = nil
+
 	local function applyDescription(desc)
 		local humanoid = getHumanoid()
-		if not humanoid then return false end
-		local ok = pcall(function() humanoid:ApplyDescription(desc) end)
-		return ok
+		if not humanoid then return false, "no character/humanoid yet" end
+		local ok, err = pcall(function() humanoid:ApplyDescription(desc) end)
+		return ok, err
 	end
+
+	local function setSkin(desc)
+		desiredDescription = desc
+		return applyDescription(desc)
+	end
+
+	LocalPlayer.CharacterAdded:Connect(function(char)
+		if not desiredDescription then return end
+		local h = char:WaitForChild("Humanoid", 5)
+		if h then
+			task.wait(0.3) -- let the default appearance load first, then override
+			pcall(function() h:ApplyDescription(desiredDescription) end)
+		end
+	end)
 
 	local function currentDescription()
 		local humanoid = getHumanoid()
@@ -70,22 +88,27 @@ return function(ctx, Lib)
 		if text == "" then return end
 		skinStatus.Text = "Loading " .. text .. "…"
 		task.spawn(function()
-			local ok = pcall(function()
+			-- Surface the real failure point so issues are diagnosable.
+			local ok, desc = pcall(function()
 				local userId = tonumber(text)
-				if not userId then
-					userId = Players:GetUserIdFromNameAsync(text)
-				end
-				local desc = Players:GetHumanoidDescriptionFromUserId(userId)
-				if not applyDescription(desc) then error("apply failed") end
+				if not userId then userId = Players:GetUserIdFromNameAsync(text) end
+				local d = Players:GetHumanoidDescriptionFromUserId(userId)
+				if not d then error("no description returned") end
+				return d
 			end)
-			skinStatus.Text = ok
+			if not ok then
+				skinStatus.Text = "Lookup failed: " .. tostring(desc)
+				return
+			end
+			local applied, err = setSkin(desc)
+			skinStatus.Text = applied
 				and ("Applied avatar: " .. text)
-				or ("Couldn't load/apply: " .. text)
+				or ("Apply failed: " .. tostring(err))
 		end)
 	end)
 
 	-- Color-only presets via HumanoidDescription.
-	local function applyColors(order, name, colors)
+	local function applyColors(name, colors)
 		return {
 			text = name, width = 92,
 			callback = function()
@@ -98,19 +121,20 @@ return function(ctx, Lib)
 					d.LeftLegColor  = colors.leg
 					d.RightLegColor = colors.leg
 					pcall(function() d.Shirt, d.Pants, d.GraphicTShirt = 0, 0, 0 end)
-					skinStatus.Text = applyDescription(d)
-						and ("Preset: " .. name) or ("Preset failed: " .. name)
+					local ok, err = setSkin(d)
+					skinStatus.Text = ok and ("Preset: " .. name)
+						or ("Preset failed: " .. tostring(err))
 				end)
 			end,
 		}
 	end
 
 	Lib.addButtonRow(page, 5, {
-		applyColors(5, "Stealth", {
+		applyColors("Stealth", {
 			head = Color3.new(0, 0, 0), torso = Color3.new(0, 0, 0),
 			arm = Color3.new(0, 0, 0), leg = Color3.new(0, 0, 0),
 		}),
-		applyColors(5, "Noob", {
+		applyColors("Noob", {
 			head = Color3.fromRGB(245, 205, 48), torso = Color3.fromRGB(13, 105, 172),
 			arm = Color3.fromRGB(245, 205, 48), leg = Color3.fromRGB(40, 127, 71),
 		}),
@@ -157,7 +181,9 @@ return function(ctx, Lib)
 
 	local function effectiveAnimSpeed()
 		if animSync and ctx.timelapse and ctx.timelapse.enabled then
-			return math.clamp(ctx.timelapse.speed, 0.25, 8)
+			-- Map the live (ramping) timelapse speed so anims sit at ~1x normally
+			-- and accelerate from there as the timelapse ramps up.
+			return math.clamp(1 + ctx.timelapse.speed, 1, 8)
 		end
 		return animSpeed
 	end
@@ -192,16 +218,21 @@ return function(ctx, Lib)
 
 	local animSlider = Lib.addSlider(page, 9, "Animation Speed", 0.25, 4, 1, function(v)
 		animSpeed = v
-		if not animSync then applyAnimSpeed() end
+		applyAnimSpeed()
 	end)
 	local animSyncToggle = Lib.addToggleRow(page, 10, "Sync to World timelapse", false, function(state)
 		animSync = state
 		applyAnimSpeed()
 	end)
 
-	-- While syncing, keep tracks matched to the (changing) timelapse speed.
+	-- Re-assert the speed every frame. A game's default Animate script calls
+	-- AdjustSpeed itself each frame (to scale walk/run by WalkSpeed), so a
+	-- one-shot set is immediately clobbered — we only "stick" by winning every
+	-- frame while a non-1x speed (or an active timelapse sync) is in effect.
 	RunService.Heartbeat:Connect(function()
-		if animSync and ctx.timelapse and ctx.timelapse.enabled then
+		if animSync then
+			if ctx.timelapse and ctx.timelapse.enabled then applyAnimSpeed() end
+		elseif animSpeed ~= 1 then
 			applyAnimSpeed()
 		end
 	end)

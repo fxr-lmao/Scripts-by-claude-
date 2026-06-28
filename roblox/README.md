@@ -67,13 +67,15 @@ as well as via the scrollbar.
   the engine's own lighting + post.) Default restores the snapshotted originals.
 - **Fonts** — click a font (35+ options) to re-skin the hub, every other UI
   under `PlayerGui`, and chat (window + bubbles via `TextChatService`). Inert
-  until you pick one, then a single `DescendantAdded` listener catches new UI —
-  no polling loops, so no frame-rate overhead. The font-list buttons keep their
-  own font so each stays a live preview.
+  until you pick one, then per-root `DescendantAdded` listeners catch new UI —
+  no polling loops. Covers **PlayerGui, CoreGui, and in-world Billboard/Surface
+  GUIs** under Workspace (nameplates, signs…), so it reaches fonts the old pass
+  missed. The font-list buttons keep their own font so each stays a live preview.
 - **World** — time-of-day slider + Dawn/Noon/Sunset/Night buttons, camera FOV,
   atmosphere haze, a freeze-time toggle that genuinely holds the clock, a
-  timelapse toggle (with speed) that sweeps the sun, and a **Fullbright** toggle
-  that flattens lighting (snapshots + restores the originals).
+  timelapse toggle (with speed) that **accelerates** the sun smoothly up to speed
+  (and coasts back down) rather than snapping, and a **Fullbright** toggle that
+  flattens lighting (snapshots + restores the originals).
 - **Client** — local-only tools: **skin changer** (copy any user's avatar by
   username/ID, or Stealth/Noob/Ghost presets), **animation speed** (with an
   option to sync to the World timelapse), **animation FastFlags**, an **FPS
@@ -97,7 +99,8 @@ as well as via the scrollbar.
 | Up / Down | `E` / `Q` |
 | Look | Mouse (cursor locks to centre while active) |
 | Boost / Slow | `Shift` / `Ctrl` |
-| Speed | **Move Speed** slider in the tab |
+| Speed | **Mouse scroll wheel** while flying (cursor's locked), or the **Move Speed** slider / on-screen Speed bar |
+| Smooth flight | **Smooth Flight** toggle in the tab — adds momentum so the camera glides like on ice (Glide Smoothness slider) |
 
 **Mobile**
 
@@ -107,7 +110,7 @@ as well as via the scrollbar.
 | Move | Drag anywhere on the **left half** — a joystick spawns under your thumb and trails it |
 | Up / Down | ▲ / ▼ buttons |
 | Look | Drag the **right half** of the screen |
-| Speed | **Move Speed** slider in the tab |
+| Speed | The **on-screen Speed bar** at the top while flying (or the tab slider) |
 
 Purely client-side — it only moves your camera, never your character, and uses
 the supported `SetCoreGuiEnabled` / `SetCore` / `GuiService` APIs to hide UI.
