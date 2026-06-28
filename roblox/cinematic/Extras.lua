@@ -10,7 +10,7 @@ local Players = game:GetService("Players")
 return function(ctx, Lib)
 	local make = Lib.make
 	local THEME = Lib.THEME
-	local page = ctx.addTab("Extras", 5)
+	local page = ctx.addTab("Extras", 8)
 
 	------------------------------------------------------------------
 	-- Letterbox
@@ -91,16 +91,60 @@ return function(ctx, Lib)
 	end)
 
 	------------------------------------------------------------------
+	-- Hide other players' characters (local-only, clean restore)
+	------------------------------------------------------------------
+	local playersHidden = false
+	-- LocalTransparencyModifier hides a part client-side without touching its
+	-- real Transparency, so it restores cleanly; decals keep no LTM, so we stash
+	-- and restore their Transparency via an attribute.
+	local function setCharHidden(char, hidden)
+		for _, d in ipairs(char:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.LocalTransparencyModifier = hidden and 1 or 0
+			elseif d:IsA("Decal") or d:IsA("Texture") then
+				if hidden then
+					if d:GetAttribute("_mtrans") == nil then d:SetAttribute("_mtrans", d.Transparency) end
+					d.Transparency = 1
+				else
+					local orig = d:GetAttribute("_mtrans")
+					if orig ~= nil then d.Transparency = orig; d:SetAttribute("_mtrans", nil) end
+				end
+			end
+		end
+	end
+	local function forEachOther(cb)
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= Players.LocalPlayer and plr.Character then cb(plr.Character) end
+		end
+	end
+	-- Keep hiding across respawns / late joiners while the toggle is on.
+	local function hookHidePlayer(plr)
+		plr.CharacterAdded:Connect(function(char)
+			if playersHidden and plr ~= Players.LocalPlayer then
+				task.wait(0.2) -- let the body/accessories stream in first
+				setCharHidden(char, true)
+			end
+		end)
+	end
+	for _, plr in ipairs(Players:GetPlayers()) do hookHidePlayer(plr) end
+	Players.PlayerAdded:Connect(hookHidePlayer)
+
+	local hidePlayersToggle = Lib.addToggleRow(page, 4, "Hide Other Players", false, function(state)
+		playersHidden = state
+		forEachOther(function(char) setCharHidden(char, state) end)
+	end)
+
+	------------------------------------------------------------------
 	-- Hide game UI (keeps the hub reachable)
 	------------------------------------------------------------------
-	local hideUIToggle = Lib.addToggleRow(page, 4, "Hide Game UI", false, function(state)
+	local hideUIToggle = Lib.addToggleRow(page, 5, "Hide Game UI", false, function(state)
 		Lib.setGameUIHidden(state, ctx.gui)
 	end)
 
 	------------------------------------------------------------------
 	-- Reset All
 	------------------------------------------------------------------
-	Lib.addButtonRow(page, 5, {
+	Lib.addButtonRow(page, 6, {
 		{ text = "Reset All", width = 110, color = THEME.Danger, textColor = Color3.new(1, 1, 1),
 			callback = function()
 				letterboxToggle.set(false, false)
@@ -108,6 +152,9 @@ return function(ctx, Lib)
 				nameplateToggle.set(false, false)
 				nameplatesHidden = false
 				forEachHumanoid(function(h) setNameplate(h, true) end)
+				hidePlayersToggle.set(false, false)
+				playersHidden = false
+				forEachOther(function(char) setCharHidden(char, false) end)
 				hideUIToggle.set(false, false)
 				Lib.setGameUIHidden(false, ctx.gui)
 				ctx.runReset()

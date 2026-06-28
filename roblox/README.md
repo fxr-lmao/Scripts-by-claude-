@@ -7,28 +7,47 @@ Roblox Luau scripts. Unless noted otherwise, each is a **LocalScript** meant for
 
 | Script | Type | Description |
 |--------|------|-------------|
-| [`CinematicHub.lua`](CinematicHub.lua) | Loader | All-in-one cinematic tools hub — one floating button opens a tabbed, exploit-hub-style panel for **Free Cam**, **Shaders**, **Fonts**, **World**, and **Extras**. Thin loader that pulls the modules in [`cinematic/`](cinematic). Everything is client-side and visual only — no exploits. |
-| [`cinematic/`](cinematic) | Modules | The hub's source, split into `Lib`, `Shell`, `FreeCam`, `Shaders`, `Fonts`, `World`, `Extras`. |
+| [`dist/Mirage.lua`](dist/Mirage.lua) | Bundle | **Published, one-file build** of the hub (**Mirage**) — all modules inlined behind a junk-padded XOR+base64 decoder. This is what you `loadstring`. Regenerate with `build/bundle.py`. |
+| [`CinematicHub.lua`](CinematicHub.lua) | Loader (dev) | Thin loader that pulls the modules in [`cinematic/`](cinematic) over HTTP — handy for development. One floating button opens a tabbed panel: **Free Cam**, **Shaders**, **Fonts**, **World**, **Client**, **Fun**, **Extras**. Everything is client-side only — it never touches the server or other players. |
+| [`cinematic/`](cinematic) | Modules | The hub's source, split into `Lib`, `Shell`, `FreeCam`, `Shaders`, `Fonts`, `World`, `Client`, `Fun`, `Extras`. |
+| [`build/bundle.py`](build/bundle.py) | Build | Inlines `cinematic/` into [`dist/Mirage.lua`](dist/Mirage.lua). Run after editing any module. |
 
-## CinematicHub.lua
+## Mirage (CinematicHub)
 
-Run it with an executor:
+The hub is branded **Mirage** (the launcher button reads `✨ Mirage`). The brand
+is a single constant — `Lib.BRAND` / `Lib.GLYPH` in [`cinematic/Lib.lua`](cinematic/Lib.lua) —
+so renaming it again is a one-line edit (then rebuild the bundle, below).
+
+**To publish / run** — use the bundled, single-file build:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/fxr-lmao/Scripts-by-claude-/refs/heads/claude/hub-freecam-qol-0jgtb0/roblox/CinematicHub.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/fxr-lmao/Scripts-by-claude-/refs/heads/claude/hub-freecam-qol-0jgtb0/roblox/dist/Mirage.lua"))()
 ```
 
-`CinematicHub.lua` is a thin **loader**; it fetches the modules in `cinematic/`
-from the same branch. The loader's `SOURCE.ref` must point at a branch/commit
-that contains `cinematic/` — switch it to `refs/heads/main` after merging. (In
-Studio, parent the `cinematic/` ModuleScripts under the loader and it `require`s
-them locally instead of over HTTP.) It's also auto-execute safe — it waits for
-the game and local player to load, so it can live in an executor's autoexec
-folder.
+[`dist/Mirage.lua`](dist/Mirage.lua) inlines every module into one self-contained
+chunk (no per-module HTTP) behind a junk-padded XOR+base64 decoder, so it isn't
+casually copy-pasteable and the GUI name is randomised per run. **This is light
+anti-skid, not real obfuscation** — the readable source still lives in
+`cinematic/`, and a determined reader can recover it. For stronger protection,
+run the dist file through a dedicated Lua obfuscator before publishing.
+
+**To rebuild the bundle** after editing anything in `cinematic/`:
+
+```sh
+python3 roblox/build/bundle.py    # regenerates roblox/dist/Mirage.lua
+```
+
+**For development**, [`CinematicHub.lua`](CinematicHub.lua) is a thin **loader**
+that fetches the `cinematic/` modules over HTTP from a branch (set its
+`SOURCE.ref`; switch to `refs/heads/main` after merging). In Studio, parent the
+`cinematic/` ModuleScripts under the loader and it `require`s them locally.
+
+Both entry points are auto-execute safe — they wait for the game and local
+player to load, so either can live in an executor's autoexec folder.
 
 | Action | Input |
 |--------|-------|
-| Open / close hub | Drag-anywhere **🎬 Cinematic** button, or press **`\`** (backquote) |
+| Open / close hub | Drag-anywhere **✨ Mirage** button, or press **`\`** (backquote) |
 | Toggle Free Cam directly | `P` |
 
 Every tab page **scrolls by dragging anywhere on it** (no scroll wheel needed)
@@ -36,6 +55,7 @@ as well as via the scrollbar.
 
 - **Free Cam** — detaches the camera and hides all UI for a clean shot; the
   launcher is hidden while flying, with an always-there on-screen Exit button.
+  Includes a **rule-of-thirds framing grid** toggle for composing shots.
 - **Shaders** — preset buttons (Default, Cinematic, Noir, Warm, Cold, Dreamy,
   Horror, Vintage, Vaporwave) plus manual Bloom / Blur / Brightness / Contrast /
   Saturation / Sun Rays sliders. Bloom uses a low threshold so the glow is
@@ -46,10 +66,20 @@ as well as via the scrollbar.
   no polling loops, so no frame-rate overhead. The font-list buttons keep their
   own font so each stays a live preview.
 - **World** — time-of-day slider + Dawn/Noon/Sunset/Night buttons, camera FOV,
-  atmosphere haze, a freeze-time toggle that genuinely holds the clock, and a
-  timelapse toggle (with speed) that sweeps the sun.
-- **Extras** — letterbox bars (+ size), hide nameplates/healthbars, hide game
-  UI, and Reset All.
+  atmosphere haze, a freeze-time toggle that genuinely holds the clock, a
+  timelapse toggle (with speed) that sweeps the sun, and a **Fullbright** toggle
+  that flattens lighting (snapshots + restores the originals).
+- **Client** — local-only tools: **skin changer** (copy any user's avatar by
+  username/ID, or Stealth/Noob/Ghost presets), **animation speed** (with an
+  option to sync to the World timelapse), **animation FastFlags**, an **FPS
+  boost** that strips effects (+ FPS cap), and **anti-idle** to dodge the AFK
+  kick. The FFlags / FPS cap / anti-idle paths use executor APIs and quietly
+  no-op where unsupported (e.g. in Studio).
+- **Fun** — pass-the-time toys: **emotes** (default Roblox emotes + a custom
+  animation-id field), a bouncing **DVD logo**, and **Pong vs a robot** you
+  play right in the panel.
+- **Extras** — letterbox bars (+ size), hide nameplates/healthbars, **hide
+  other players** (local-only, clean restore), hide game UI, and Reset All.
 
 ### Free Cam — controls
 

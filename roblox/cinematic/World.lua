@@ -18,6 +18,10 @@ return function(ctx, Lib)
 	local timelapse = false
 	local timelapseSpeed = 1.0 -- hours of ClockTime per real second
 
+	-- Published so other tabs (e.g. Client's "sync animation speed to timelapse")
+	-- can read the live timelapse state without reaching into this module.
+	ctx.timelapse = { enabled = false, speed = timelapseSpeed }
+
 	local timeSlider
 	timeSlider = Lib.addSlider(page, 1, "Time of Day", 0, 24, Lighting.ClockTime, function(v)
 		Lighting.ClockTime = v
@@ -52,11 +56,41 @@ return function(ctx, Lib)
 
 	local timelapseToggle = Lib.addToggleRow(page, 6, "Timelapse (moving sun)", false, function(state)
 		timelapse = state
+		ctx.timelapse.enabled = state
 	end)
 
 	Lib.addSlider(page, 7, "Timelapse Speed", 0.1, 6, timelapseSpeed, function(v)
 		timelapseSpeed = v
+		ctx.timelapse.speed = v
 	end)
+
+	-- Fullbright: flatten lighting so nothing is in shadow (great for dark games
+	-- and clean shots). Snapshots the originals so it restores exactly.
+	local fbSaved
+	local function setFullbright(on)
+		if on then
+			if not fbSaved then
+				fbSaved = {
+					Ambient = Lighting.Ambient,
+					OutdoorAmbient = Lighting.OutdoorAmbient,
+					Brightness = Lighting.Brightness,
+					GlobalShadows = Lighting.GlobalShadows,
+					FogEnd = Lighting.FogEnd,
+					ExposureCompensation = Lighting.ExposureCompensation,
+				}
+			end
+			Lighting.Ambient = Color3.fromRGB(178, 178, 178)
+			Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
+			Lighting.Brightness = 2
+			Lighting.GlobalShadows = false
+			Lighting.FogEnd = 1e9
+			Lighting.ExposureCompensation = 0
+		elseif fbSaved then
+			for k, v in pairs(fbSaved) do pcall(function() Lighting[k] = v end) end
+			fbSaved = nil
+		end
+	end
+	local fullbrightToggle = Lib.addToggleRow(page, 8, "Fullbright", false, setFullbright)
 
 	-- One Heartbeat handles both freeze (hold) and timelapse (advance). Both
 	-- branches are skipped by a boolean when idle, so there's no cost when off.
@@ -72,8 +106,11 @@ return function(ctx, Lib)
 	ctx.onReset(function()
 		timeFrozen = false
 		timelapse = false
+		ctx.timelapse.enabled = false
 		freezeToggle.set(false, false)
 		timelapseToggle.set(false, false)
+		if fbSaved then setFullbright(false) end
+		fullbrightToggle.set(false, false)
 		Lighting.ClockTime = 14
 		frozenClockTime = 14
 		Workspace.CurrentCamera.FieldOfView = 70
