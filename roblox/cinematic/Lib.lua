@@ -38,6 +38,10 @@ local THEME = Lib.THEME
 Lib.hubFont  = Enum.Font.GothamBold
 Lib.bodyFont = Enum.Font.Gotham
 
+-- Brand: change these two and the whole UI (launcher, title, prints) follows.
+Lib.BRAND = "Mirage"
+Lib.GLYPH = "✨"
+
 -- Set true while a slider knob/track is being dragged, so a tab page's
 -- drag-to-scroll yields instead of fighting the slider for the same press.
 Lib.widgetDragging = false

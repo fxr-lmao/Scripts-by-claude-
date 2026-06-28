@@ -244,7 +244,32 @@ return function(ctx, Lib)
 		FC.moveSpeed = v
 	end)
 
-	Lib.addLabel(page, 4,
+	-- Rule-of-thirds framing grid overlay (handy for composing shots; pairs well
+	-- with the Extras letterbox). Lives on our own gui so it stays up during a
+	-- clean shot.
+	local gridLayer = make("Frame", {
+		Name = "FramingGrid",
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		Visible = false,
+	}, ctx.gui)
+	local function gridLine(vertical, at)
+		make("Frame", {
+			Size = vertical and UDim2.new(0, 1, 1, 0) or UDim2.new(1, 0, 0, 1),
+			Position = vertical and UDim2.new(at, 0, 0, 0) or UDim2.new(0, 0, at, 0),
+			BackgroundColor3 = Color3.new(1, 1, 1),
+			BackgroundTransparency = 0.6,
+			BorderSizePixel = 0,
+		}, gridLayer)
+	end
+	gridLine(true, 1 / 3);  gridLine(true, 2 / 3)
+	gridLine(false, 1 / 3); gridLine(false, 2 / 3)
+
+	local gridToggle = Lib.addToggleRow(page, 4, "Framing Grid (rule of thirds)", false, function(state)
+		gridLayer.Visible = state
+	end)
+
+	Lib.addLabel(page, 5,
 		"Desktop: WASD/arrows move, mouse look, Q/E down/up, Shift boost, Ctrl slow.\n"
 		.. "Mobile: left thumbstick to move, drag right side of screen to look.", 60)
 
@@ -367,5 +392,7 @@ return function(ctx, Lib)
 
 	ctx.onReset(function()
 		if FC.enabled then exitFreeCam() end
+		gridLayer.Visible = false
+		gridToggle.set(false, false)
 	end)
 end

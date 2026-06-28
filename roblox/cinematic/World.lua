@@ -64,6 +64,34 @@ return function(ctx, Lib)
 		ctx.timelapse.speed = v
 	end)
 
+	-- Fullbright: flatten lighting so nothing is in shadow (great for dark games
+	-- and clean shots). Snapshots the originals so it restores exactly.
+	local fbSaved
+	local function setFullbright(on)
+		if on then
+			if not fbSaved then
+				fbSaved = {
+					Ambient = Lighting.Ambient,
+					OutdoorAmbient = Lighting.OutdoorAmbient,
+					Brightness = Lighting.Brightness,
+					GlobalShadows = Lighting.GlobalShadows,
+					FogEnd = Lighting.FogEnd,
+					ExposureCompensation = Lighting.ExposureCompensation,
+				}
+			end
+			Lighting.Ambient = Color3.fromRGB(178, 178, 178)
+			Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
+			Lighting.Brightness = 2
+			Lighting.GlobalShadows = false
+			Lighting.FogEnd = 1e9
+			Lighting.ExposureCompensation = 0
+		elseif fbSaved then
+			for k, v in pairs(fbSaved) do pcall(function() Lighting[k] = v end) end
+			fbSaved = nil
+		end
+	end
+	local fullbrightToggle = Lib.addToggleRow(page, 8, "Fullbright", false, setFullbright)
+
 	-- One Heartbeat handles both freeze (hold) and timelapse (advance). Both
 	-- branches are skipped by a boolean when idle, so there's no cost when off.
 	RunService.Heartbeat:Connect(function(dt)
@@ -81,6 +109,8 @@ return function(ctx, Lib)
 		ctx.timelapse.enabled = false
 		freezeToggle.set(false, false)
 		timelapseToggle.set(false, false)
+		if fbSaved then setFullbright(false) end
+		fullbrightToggle.set(false, false)
 		Lighting.ClockTime = 14
 		frozenClockTime = 14
 		Workspace.CurrentCamera.FieldOfView = 70

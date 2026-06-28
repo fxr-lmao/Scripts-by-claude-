@@ -27,8 +27,9 @@ return function(Lib)
 	------------------------------------------------------------------
 	-- Root
 	------------------------------------------------------------------
+	-- Randomised name so the GUI isn't trivially found/copied by signature.
 	local gui = make("ScreenGui", {
-		Name = "CinematicHubGui",
+		Name = "_" .. tostring(math.random(1e8, 1e9 - 1)),
 		ResetOnSpawn = false,
 		IgnoreGuiInset = true,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
@@ -47,7 +48,7 @@ return function(Lib)
 		TextColor3 = THEME.Text,
 		Font = Lib.hubFont,
 		TextSize = 16,
-		Text = "🎬  Cinematic",
+		Text = Lib.GLYPH .. "  " .. Lib.BRAND,
 		AutoButtonColor = true,
 	}, gui)
 	corner(launcher, 10)
@@ -111,7 +112,7 @@ return function(Lib)
 		Font = Lib.hubFont,
 		TextSize = 16,
 		TextColor3 = THEME.Text,
-		Text = "Cinematic Hub",
+		Text = Lib.BRAND,
 	}, titleBar)
 
 	local closeBtn = make("TextButton", {

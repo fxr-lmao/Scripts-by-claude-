@@ -75,5 +75,6 @@ loadModule("Extras")(ctx, Lib)
 
 ctx.selectTab("Free Cam")
 
-print("[CinematicHub] Loaded. Tap '🎬 Cinematic' or press ` to open. Press P for Free Cam.")
+print(("[%s] Loaded. Tap '%s %s' or press ` to open. Press P for Free Cam.")
+	:format(Lib.BRAND, Lib.GLYPH, Lib.BRAND))
 return ctx
