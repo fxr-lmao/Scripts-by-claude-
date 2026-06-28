@@ -98,43 +98,55 @@ return function(ctx, Lib)
 			end)
 			if not ok then
 				skinStatus.Text = "Lookup failed: " .. tostring(desc)
+				warn("[Mirage] skin lookup failed: " .. tostring(desc))
 				return
 			end
 			local applied, err = setSkin(desc)
-			skinStatus.Text = applied
-				and ("Applied avatar: " .. text)
-				or ("Apply failed: " .. tostring(err))
+			if applied then
+				skinStatus.Text = "Applied avatar: " .. text
+				print("[Mirage] skin applied: " .. text)
+			else
+				skinStatus.Text = "Apply failed: " .. tostring(err)
+				warn("[Mirage] skin apply failed: " .. tostring(err))
+			end
 		end)
 	end)
 
-	-- Color-only presets via HumanoidDescription.
-	local function applyColors(name, colors)
+	-- Presets color the local character's parts directly. Purely client-side and
+	-- immediate — unlike ApplyDescription, the game can't quietly revert it, and
+	-- it works on both R6 and R15 rigs via the part-name heuristic.
+	local function colorChar(scheme)
+		local char = getCharacter()
+		if not char then return false end
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") then
+				local nm = p.Name:lower()
+				local col = scheme.torso
+				if nm:find("head") then col = scheme.head
+				elseif nm:find("arm") or nm:find("hand") then col = scheme.arm
+				elseif nm:find("leg") or nm:find("foot") then col = scheme.leg end
+				pcall(function() p.Color = col end)
+			end
+		end
+		return true
+	end
+	local function preset(name, scheme)
 		return {
 			text = name, width = 92,
 			callback = function()
-				task.spawn(function()
-					local d = currentDescription()
-					d.HeadColor     = colors.head
-					d.TorsoColor    = colors.torso
-					d.LeftArmColor  = colors.arm
-					d.RightArmColor = colors.arm
-					d.LeftLegColor  = colors.leg
-					d.RightLegColor = colors.leg
-					pcall(function() d.Shirt, d.Pants, d.GraphicTShirt = 0, 0, 0 end)
-					local ok, err = setSkin(d)
-					skinStatus.Text = ok and ("Preset: " .. name)
-						or ("Preset failed: " .. tostring(err))
-				end)
+				local ok = colorChar(scheme)
+				skinStatus.Text = ok and ("Preset: " .. name) or "Preset: no character"
+				print("[Mirage] preset " .. name .. (ok and " applied" or " (no character)"))
 			end,
 		}
 	end
 
 	Lib.addButtonRow(page, 5, {
-		applyColors("Stealth", {
+		preset("Stealth", {
 			head = Color3.new(0, 0, 0), torso = Color3.new(0, 0, 0),
 			arm = Color3.new(0, 0, 0), leg = Color3.new(0, 0, 0),
 		}),
-		applyColors("Noob", {
+		preset("Noob", {
 			head = Color3.fromRGB(245, 205, 48), torso = Color3.fromRGB(13, 105, 172),
 			arm = Color3.fromRGB(245, 205, 48), leg = Color3.fromRGB(40, 127, 71),
 		}),
@@ -188,22 +200,31 @@ return function(ctx, Lib)
 		return animSpeed
 	end
 
-	local function applyAnimSpeed()
+	-- Modern games play animations through the Animator, so tracks must be read
+	-- from it — Humanoid:GetPlayingAnimationTracks() is deprecated and comes back
+	-- empty here, which is why the speed change appeared to do nothing.
+	local function getAnimator()
 		local humanoid = getHumanoid()
-		if not humanoid then return end
+		if not humanoid then return nil end
+		return humanoid:FindFirstChildOfClass("Animator")
+	end
+
+	local function applyAnimSpeed()
+		local animator = getAnimator()
+		if not animator then return 0 end
 		local speed = effectiveAnimSpeed()
-		for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+		local tracks = animator:GetPlayingAnimationTracks()
+		for _, track in ipairs(tracks) do
 			pcall(function() track:AdjustSpeed(speed) end)
 		end
+		return #tracks
 	end
 
 	-- New tracks should inherit the current speed too; rebind on respawn.
 	local animPlayedConn
 	local function bindAnimator()
 		if animPlayedConn then animPlayedConn:Disconnect() animPlayedConn = nil end
-		local humanoid = getHumanoid()
-		if not humanoid then return end
-		local animator = humanoid:FindFirstChildOfClass("Animator")
+		local animator = getAnimator()
 		if not animator then return end
 		animPlayedConn = animator.AnimationPlayed:Connect(function(track)
 			pcall(function() track:AdjustSpeed(effectiveAnimSpeed()) end)
@@ -218,7 +239,8 @@ return function(ctx, Lib)
 
 	local animSlider = Lib.addSlider(page, 9, "Animation Speed", 0.25, 4, 1, function(v)
 		animSpeed = v
-		applyAnimSpeed()
+		local n = applyAnimSpeed()
+		print(("[Mirage] animation speed %.2fx → %d playing track(s)"):format(v, n))
 	end)
 	local animSyncToggle = Lib.addToggleRow(page, 10, "Sync to World timelapse", false, function(state)
 		animSync = state
