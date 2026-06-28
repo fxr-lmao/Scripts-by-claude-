@@ -289,6 +289,55 @@ function Lib.addToggleRow(parent, order, labelText, default, onChange)
 	}
 end
 
+-- A text field + action button on one row. onSubmit(text) fires on the button
+-- or when the box is committed with Enter. Returns { row, box, set(text) }.
+function Lib.addTextInput(parent, order, placeholder, buttonText, onSubmit)
+	local row = make("Frame", {
+		Size = UDim2.new(1, 0, 0, 34),
+		BackgroundTransparency = 1,
+		LayoutOrder = order,
+	}, parent)
+
+	local box = make("TextBox", {
+		Size = UDim2.new(1, -84, 1, 0),
+		BackgroundColor3 = THEME.PanelAlt,
+		TextColor3 = THEME.Text,
+		Font = Lib.bodyFont,
+		TextSize = 13,
+		Text = "",
+		PlaceholderText = placeholder or "",
+		PlaceholderColor3 = THEME.SubText,
+		ClearTextOnFocus = false,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
+	Lib.corner(box, 6)
+	make("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, box)
+
+	local btn = make("TextButton", {
+		Size = UDim2.new(0, 76, 1, 0),
+		Position = UDim2.new(1, -76, 0, 0),
+		BackgroundColor3 = THEME.Accent,
+		TextColor3 = Color3.new(0, 0, 0),
+		Font = Lib.hubFont,
+		TextSize = 13,
+		Text = buttonText or "Go",
+		AutoButtonColor = true,
+	}, row)
+	Lib.corner(btn, 6)
+
+	local function submit() onSubmit(box.Text) end
+	btn.Activated:Connect(submit)
+	box.FocusLost:Connect(function(enterPressed)
+		if enterPressed then submit() end
+	end)
+
+	return {
+		row = row,
+		box = box,
+		set = function(text) box.Text = text end,
+	}
+end
+
 function Lib.addButtonRow(parent, order, buttons)
 	local row = make("Frame", {
 		Size = UDim2.new(1, 0, 0, 32),

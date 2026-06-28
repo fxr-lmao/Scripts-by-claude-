@@ -7,8 +7,8 @@ Roblox Luau scripts. Unless noted otherwise, each is a **LocalScript** meant for
 
 | Script | Type | Description |
 |--------|------|-------------|
-| [`CinematicHub.lua`](CinematicHub.lua) | Loader | All-in-one cinematic tools hub — one floating button opens a tabbed, exploit-hub-style panel for **Free Cam**, **Shaders**, **Fonts**, **World**, and **Extras**. Thin loader that pulls the modules in [`cinematic/`](cinematic). Everything is client-side and visual only — no exploits. |
-| [`cinematic/`](cinematic) | Modules | The hub's source, split into `Lib`, `Shell`, `FreeCam`, `Shaders`, `Fonts`, `World`, `Extras`. |
+| [`CinematicHub.lua`](CinematicHub.lua) | Loader | All-in-one cinematic tools hub — one floating button opens a tabbed, exploit-hub-style panel for **Free Cam**, **Shaders**, **Fonts**, **World**, **Client**, **Fun**, and **Extras**. Thin loader that pulls the modules in [`cinematic/`](cinematic). Everything is client-side only — it never touches the server or other players. |
+| [`cinematic/`](cinematic) | Modules | The hub's source, split into `Lib`, `Shell`, `FreeCam`, `Shaders`, `Fonts`, `World`, `Client`, `Fun`, `Extras`. |
 
 ## CinematicHub.lua
 
@@ -48,6 +48,15 @@ as well as via the scrollbar.
 - **World** — time-of-day slider + Dawn/Noon/Sunset/Night buttons, camera FOV,
   atmosphere haze, a freeze-time toggle that genuinely holds the clock, and a
   timelapse toggle (with speed) that sweeps the sun.
+- **Client** — local-only tools: **skin changer** (copy any user's avatar by
+  username/ID, or Stealth/Noob/Ghost presets), **animation speed** (with an
+  option to sync to the World timelapse), **animation FastFlags**, an **FPS
+  boost** that strips effects (+ FPS cap), and **anti-idle** to dodge the AFK
+  kick. The FFlags / FPS cap / anti-idle paths use executor APIs and quietly
+  no-op where unsupported (e.g. in Studio).
+- **Fun** — pass-the-time toys: **emotes** (default Roblox emotes + a custom
+  animation-id field), a bouncing **DVD logo**, and **Pong vs a robot** you
+  play right in the panel.
 - **Extras** — letterbox bars (+ size), hide nameplates/healthbars, hide game
   UI, and Reset All.
 

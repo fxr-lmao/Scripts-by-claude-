@@ -69,6 +69,8 @@ loadModule("FreeCam")(ctx, Lib)
 loadModule("Shaders")(ctx, Lib)
 loadModule("Fonts")(ctx, Lib)
 loadModule("World")(ctx, Lib)
+loadModule("Client")(ctx, Lib)
+loadModule("Fun")(ctx, Lib)
 loadModule("Extras")(ctx, Lib)
 
 ctx.selectTab("Free Cam")

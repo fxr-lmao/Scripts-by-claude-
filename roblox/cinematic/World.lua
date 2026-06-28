@@ -18,6 +18,10 @@ return function(ctx, Lib)
 	local timelapse = false
 	local timelapseSpeed = 1.0 -- hours of ClockTime per real second
 
+	-- Published so other tabs (e.g. Client's "sync animation speed to timelapse")
+	-- can read the live timelapse state without reaching into this module.
+	ctx.timelapse = { enabled = false, speed = timelapseSpeed }
+
 	local timeSlider
 	timeSlider = Lib.addSlider(page, 1, "Time of Day", 0, 24, Lighting.ClockTime, function(v)
 		Lighting.ClockTime = v
@@ -52,10 +56,12 @@ return function(ctx, Lib)
 
 	local timelapseToggle = Lib.addToggleRow(page, 6, "Timelapse (moving sun)", false, function(state)
 		timelapse = state
+		ctx.timelapse.enabled = state
 	end)
 
 	Lib.addSlider(page, 7, "Timelapse Speed", 0.1, 6, timelapseSpeed, function(v)
 		timelapseSpeed = v
+		ctx.timelapse.speed = v
 	end)
 
 	-- One Heartbeat handles both freeze (hold) and timelapse (advance). Both
@@ -72,6 +78,7 @@ return function(ctx, Lib)
 	ctx.onReset(function()
 		timeFrozen = false
 		timelapse = false
+		ctx.timelapse.enabled = false
 		freezeToggle.set(false, false)
 		timelapseToggle.set(false, false)
 		Lighting.ClockTime = 14

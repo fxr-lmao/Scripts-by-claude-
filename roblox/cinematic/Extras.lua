@@ -10,7 +10,7 @@ local Players = game:GetService("Players")
 return function(ctx, Lib)
 	local make = Lib.make
 	local THEME = Lib.THEME
-	local page = ctx.addTab("Extras", 5)
+	local page = ctx.addTab("Extras", 8)
 
 	------------------------------------------------------------------
 	-- Letterbox
