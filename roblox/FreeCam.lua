@@ -57,6 +57,10 @@ local CONFIG = {
 	TouchLookSensitivity = 4.0,
 	ScrollSpeedStep = 10,  -- studs added/removed per mouse-wheel notch (desktop)
 	StickDeadzone   = 0.08, -- ignore tiny thumbstick wobble, then ease in smoothly
+	-- Higher = snappier, lower = floatier. This is the exponential response rate
+	-- used to ease the camera's velocity toward the target each second, giving
+	-- smooth acceleration on start and a gentle glide to a stop on release.
+	MoveResponse   = 8,
 	ToggleKey      = Enum.KeyCode.P,
 	UpKey          = Enum.KeyCode.E,
 	DownKey        = Enum.KeyCode.Q,
@@ -72,6 +76,9 @@ local moveSpeed      = CONFIG.BaseSpeed
 -- camera orientation tracked as yaw / pitch so we never get roll
 local yaw, pitch     = 0, 0
 local camPosition    = Vector3.new()
+-- smoothed world-space velocity, eased toward the target each frame for a
+-- cinematic glide instead of instant start/stop.
+local moveVelocity   = Vector3.zero
 
 -- desktop keyboard movement state
 local keysDown = {}
@@ -484,12 +491,16 @@ local function buildUI()
 	---------------------------------------------------------------
 	if hasTouchControls() then
 		-- Left thumbstick for planar movement
+		-- Dynamic thumbstick: the base spawns wherever you first touch in the left
+		-- half of the screen and is hidden until then (anchored at its centre).
 		local stickBase = Instance.new("Frame")
 		stickBase.Name = "StickBase"
 		stickBase.Size = UDim2.new(0, 120, 0, 120)
-		stickBase.Position = UDim2.new(0, 40, 1, -160)
+		stickBase.AnchorPoint = Vector2.new(0.5, 0.5)
+		stickBase.Position = UDim2.new(0, 100, 1, -100)
 		stickBase.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
 		stickBase.BackgroundTransparency = 0.5
+		stickBase.Visible = false
 		stickBase.Parent = mobileControls
 		local sbCorner = Instance.new("UICorner")
 		sbCorner.CornerRadius = UDim.new(1, 0)
@@ -508,12 +519,17 @@ local function buildUI()
 		skCorner.Parent = stickKnob
 
 		local stickInputId = nil
+		local stickOrigin = Vector2.new(0, 0) -- screen point the base is centred on
+
 		local function updateStick(pos)
 			local radius = stickBase.AbsoluteSize.X / 2
 			if radius <= 0 then return end -- not laid out yet; avoid divide-by-zero / NaN
-			local center = stickBase.AbsolutePosition + stickBase.AbsoluteSize / 2
-			local delta = Vector2.new(pos.X, pos.Y) - center
+			local delta = Vector2.new(pos.X, pos.Y) - stickOrigin
 			if delta.Magnitude > radius then
+				-- Trailing: drag the base along so it follows the thumb past the
+				-- ring, which gives that smooth "expanding" Roblox-style feel.
+				stickOrigin = stickOrigin + delta.Unit * (delta.Magnitude - radius)
+				stickBase.Position = UDim2.fromOffset(stickOrigin.X, stickOrigin.Y)
 				delta = delta.Unit * radius
 			end
 			stickKnob.Position = UDim2.new(0.5, delta.X, 0.5, delta.Y)
@@ -524,13 +540,20 @@ local function buildUI()
 			stickInputId = nil
 			stickVector = Vector2.new(0, 0)
 			stickKnob.Position = UDim2.new(0.5, 0, 0.5, 0)
+			stickBase.Visible = false
 		end
 
-		stickBase.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.Touch then
-				stickInputId = input
-				updateStick(input.Position)
-			end
+		-- Claim a fresh touch in the left half (not over other UI, not the look
+		-- finger) and spawn the joystick under it.
+		UserInputService.InputBegan:Connect(function(input, processed)
+			if not enabled or processed or stickInputId or not camera then return end
+			if input.UserInputType ~= Enum.UserInputType.Touch then return end
+			if input.Position.X >= camera.ViewportSize.X * 0.5 then return end
+			stickInputId = input
+			stickOrigin = Vector2.new(input.Position.X, input.Position.Y)
+			stickBase.Position = UDim2.fromOffset(stickOrigin.X, stickOrigin.Y)
+			stickBase.Visible = true
+			updateStick(input.Position)
 		end)
 		UserInputService.InputChanged:Connect(function(input)
 			if stickInputId and input == stickInputId
@@ -738,6 +761,8 @@ local function onRenderStep(dt)
 		speed *= CONFIG.SlowMultiplier
 	end
 
+	-- Resolve the target velocity from input...
+	local targetVelocity = Vector3.zero
 	if move.Magnitude > 0 then
 		-- Clamp the magnitude to 1 so diagonal / combined input isn't faster than
 		-- a single axis, while still allowing analog (partial) stick speeds < 1.
@@ -745,9 +770,18 @@ local function onRenderStep(dt)
 			move = move.Unit
 		end
 		-- Move relative to where the camera looks, so W flies toward the crosshair.
-		local worldMove = rotation:VectorToWorldSpace(move)
-		camPosition += worldMove * speed * dt
+		targetVelocity = rotation:VectorToWorldSpace(move) * speed
 	end
+
+	-- ...then ease the actual velocity toward it (frame-rate independent) for a
+	-- smooth ramp up and a gentle glide to a stop instead of an instant snap.
+	local alpha = 1 - math.exp(-dt * CONFIG.MoveResponse)
+	moveVelocity = moveVelocity:Lerp(targetVelocity, alpha)
+	-- Snap fully to rest once we've effectively stopped, to avoid endless drift.
+	if targetVelocity.Magnitude == 0 and moveVelocity.Magnitude < 0.05 then
+		moveVelocity = Vector3.zero
+	end
+	camPosition += moveVelocity * dt
 
 	camera.CFrame = CFrame.new(camPosition) * rotation
 end
@@ -774,6 +808,7 @@ function enterFreeCam()
 
 	-- Seed position/orientation from current camera so it doesn't jump.
 	camPosition = camera.CFrame.Position
+	moveVelocity = Vector3.zero
 	local look = camera.CFrame.LookVector
 	yaw   = math.atan2(-look.X, -look.Z)
 	pitch = math.asin(math.clamp(look.Y, -1, 1))

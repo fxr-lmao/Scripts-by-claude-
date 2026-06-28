@@ -32,7 +32,7 @@ touchscreen laptops get the on-screen thumbstick **and** mouse free-look.
 | Action | Input |
 |--------|-------|
 | Toggle | On-screen **Free Cam** button |
-| Move | Left thumbstick |
+| Move | Touch & drag anywhere on the left half — a joystick spawns under your thumb and trails it |
 | Up / Down | ▲ / ▼ buttons |
 | Look | Drag the right half of the screen |
 | Speed | Slider (top of screen) |
