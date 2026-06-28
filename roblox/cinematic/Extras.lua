@@ -15,16 +15,21 @@ return function(ctx, Lib)
 	------------------------------------------------------------------
 	-- Letterbox
 	------------------------------------------------------------------
+	-- ZIndex 0 keeps the bars above the 3D world (all GUI is) but BELOW every
+	-- hub control (default ZIndex 1) — otherwise, being created last, they'd
+	-- render over the Free Cam exit button / framing grid / mobile controls.
 	local letterboxLayer = make("Frame", {
 		Name = "Letterbox",
 		Size = UDim2.new(1, 0, 1, 0),
 		BackgroundTransparency = 1,
+		ZIndex = 0,
 		Visible = false,
 	}, ctx.gui)
 	local topBar = make("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
 		BackgroundColor3 = Color3.new(0, 0, 0),
 		BorderSizePixel = 0,
+		ZIndex = 0,
 	}, letterboxLayer)
 	local bottomBar = make("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
@@ -32,6 +37,7 @@ return function(ctx, Lib)
 		AnchorPoint = Vector2.new(0, 1),
 		BackgroundColor3 = Color3.new(0, 0, 0),
 		BorderSizePixel = 0,
+		ZIndex = 0,
 	}, letterboxLayer)
 
 	local thickness = 0.12

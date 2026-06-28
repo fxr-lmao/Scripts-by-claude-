@@ -9,6 +9,7 @@
 --]]
 
 local TextChatService = game:GetService("TextChatService")
+local Workspace       = game:GetService("Workspace")
 
 return function(ctx, Lib)
 	local make = Lib.make
@@ -57,20 +58,29 @@ return function(ctx, Lib)
 		-- look identical and you couldn't compare/pick another.
 		if inst:GetAttribute("CinematicFontPreview") then return end
 		if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
-			inst.Font = fontEnum
+			-- pcall per instance: some CoreGui text is locked and throws, and one
+			-- locked element must not abort the rest of the sweep.
+			pcall(function() inst.Font = fontEnum end)
 		end
 	end
 
-	local function applyToHub(fontEnum)
-		for _, d in ipairs(gui:GetDescendants()) do
-			applyToInstance(d, fontEnum)
-		end
+	-- Everywhere text can live: the player's UI (which includes our hub), the
+	-- game's CoreGui, and in-world Billboard/Surface GUIs parented under Workspace
+	-- (nameplates, overhead labels, signs…). That's why the old version "missed"
+	-- fonts — it only walked PlayerGui ScreenGuis.
+	local function collectRoots()
+		local roots = { PlayerGui, Workspace }
+		local core
+		pcall(function() core = game:GetService("CoreGui") end)
+		if core then table.insert(roots, core) end
+		return roots
 	end
 
-	local function applyToGame(fontEnum)
-		for _, screenGui in ipairs(PlayerGui:GetChildren()) do
-			if screenGui:IsA("ScreenGui") and screenGui ~= gui then
-				for _, d in ipairs(screenGui:GetDescendants()) do
+	local function applyAll(fontEnum)
+		for _, root in ipairs(collectRoots()) do
+			local ok, descendants = pcall(function() return root:GetDescendants() end)
+			if ok then
+				for _, d in ipairs(descendants) do
 					applyToInstance(d, fontEnum)
 				end
 			end
@@ -86,21 +96,28 @@ return function(ctx, Lib)
 		end)
 	end
 
-	-- Single persistent watcher for UI spawned later (inventories, dialogs...).
-	-- Inert until the user actually chooses a font, so we never override a
-	-- game's own fonts just by being loaded.
-	Lib.PlayerGui.DescendantAdded:Connect(function(d)
-		if not fontChosen then return end
-		if d:IsDescendantOf(gui) then return end
-		applyToInstance(d, selectedFont)
-	end)
+	-- Watchers are connected lazily on the first pick (zero overhead until the
+	-- feature is actually used), then catch any text spawned afterward across
+	-- every root. The per-instance IsA check makes the Workspace watcher cheap.
+	local watchersConnected = false
+	local function connectWatchers()
+		if watchersConnected then return end
+		watchersConnected = true
+		for _, root in ipairs(collectRoots()) do
+			pcall(function()
+				root.DescendantAdded:Connect(function(d)
+					if fontChosen then applyToInstance(d, selectedFont) end
+				end)
+			end)
+		end
+	end
 
 	local function selectFont(fontEnum)
 		fontChosen = true
 		selectedFont = fontEnum
 		Lib.hubFont, Lib.bodyFont = fontEnum, fontEnum
-		applyToHub(fontEnum)
-		applyToGame(fontEnum)
+		connectWatchers()
+		applyAll(fontEnum)
 		applyToChat(fontEnum)
 	end
 

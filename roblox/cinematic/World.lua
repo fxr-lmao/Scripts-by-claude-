@@ -16,11 +16,13 @@ return function(ctx, Lib)
 	local timeFrozen = false
 	local frozenClockTime = Lighting.ClockTime
 	local timelapse = false
-	local timelapseSpeed = 1.0 -- hours of ClockTime per real second
+	local timelapseSpeed = 1.0 -- target: hours of ClockTime per real second
+	local curTLSpeed = 0       -- live speed, ramped toward the target
+	local TL_ACCEL = 2.0       -- ramp rate (units/sec) → the "accelerate" feel
 
 	-- Published so other tabs (e.g. Client's "sync animation speed to timelapse")
-	-- can read the live timelapse state without reaching into this module.
-	ctx.timelapse = { enabled = false, speed = timelapseSpeed }
+	-- can read the LIVE (ramped) timelapse state without reaching into this module.
+	ctx.timelapse = { enabled = false, speed = 0 }
 
 	local timeSlider
 	timeSlider = Lib.addSlider(page, 1, "Time of Day", 0, 24, Lighting.ClockTime, function(v)
@@ -55,13 +57,11 @@ return function(ctx, Lib)
 	end)
 
 	local timelapseToggle = Lib.addToggleRow(page, 6, "Timelapse (moving sun)", false, function(state)
-		timelapse = state
-		ctx.timelapse.enabled = state
+		timelapse = state -- the ramp below eases curTLSpeed toward the target
 	end)
 
 	Lib.addSlider(page, 7, "Timelapse Speed", 0.1, 6, timelapseSpeed, function(v)
 		timelapseSpeed = v
-		ctx.timelapse.speed = v
 	end)
 
 	-- Fullbright: flatten lighting so nothing is in shadow (great for dark games
@@ -92,11 +92,22 @@ return function(ctx, Lib)
 	end
 	local fullbrightToggle = Lib.addToggleRow(page, 8, "Fullbright", false, setFullbright)
 
-	-- One Heartbeat handles both freeze (hold) and timelapse (advance). Both
-	-- branches are skipped by a boolean when idle, so there's no cost when off.
+	-- One Heartbeat handles freeze (hold) and timelapse (advance). The timelapse
+	-- speed ramps toward its target instead of snapping, so enabling it makes the
+	-- sun (and any synced animations) visibly accelerate up to speed and coast
+	-- back down when disabled. The live speed is published for the anim-sync.
 	RunService.Heartbeat:Connect(function(dt)
-		if timelapse then
-			frozenClockTime = (frozenClockTime + timelapseSpeed * dt) % 24
+		local target = timelapse and timelapseSpeed or 0
+		if curTLSpeed < target then
+			curTLSpeed = math.min(curTLSpeed + TL_ACCEL * dt, target)
+		elseif curTLSpeed > target then
+			curTLSpeed = math.max(curTLSpeed - TL_ACCEL * dt, target)
+		end
+		ctx.timelapse.enabled = curTLSpeed > 0.01
+		ctx.timelapse.speed = curTLSpeed
+
+		if curTLSpeed > 0.0001 then
+			frozenClockTime = (frozenClockTime + curTLSpeed * dt) % 24
 			Lighting.ClockTime = frozenClockTime
 		elseif timeFrozen then
 			Lighting.ClockTime = frozenClockTime
@@ -106,7 +117,9 @@ return function(ctx, Lib)
 	ctx.onReset(function()
 		timeFrozen = false
 		timelapse = false
+		curTLSpeed = 0
 		ctx.timelapse.enabled = false
+		ctx.timelapse.speed = 0
 		freezeToggle.set(false, false)
 		timelapseToggle.set(false, false)
 		if fbSaved then setFullbright(false) end
