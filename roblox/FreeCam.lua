@@ -49,8 +49,13 @@ local CONFIG = {
 	MaxSpeed       = 500,
 	BoostMultiplier = 4,    -- hold Shift (desktop)
 	SlowMultiplier  = 0.25, -- hold Ctrl  (desktop)
-	LookSensitivity = 0.25, -- mouse / touch look sensitivity
-	TouchLookSensitivity = 0.4,
+	LookSensitivity = 0.25, -- mouse look sensitivity (per pixel of mouse delta)
+	-- Touch look is normalised by viewport height, so this is roughly the
+	-- radians of yaw/pitch produced by a full screen-height swipe. This keeps
+	-- the feel identical across phones of different resolutions / DPI.
+	TouchLookSensitivity = 4.0,
+	ScrollSpeedStep = 10,  -- studs added/removed per mouse-wheel notch (desktop)
+	StickDeadzone   = 0.08, -- ignore tiny thumbstick wobble, then ease in smoothly
 	ToggleKey      = Enum.KeyCode.P,
 	UpKey          = Enum.KeyCode.E,
 	DownKey        = Enum.KeyCode.Q,
@@ -83,6 +88,16 @@ local savedAutoSelect = nil  -- bool, or nil if not captured
 -- cached reference to the PlayerModule controls so we can stop the character
 -- from walking while the free cam is active (and re-enable it on exit).
 local playerControls = nil
+-- whether the game already had character controls enabled when we entered, so
+-- we don't re-enable movement the game had intentionally locked (e.g. cutscene).
+local controlsWereEnabled = nil
+
+-- guards re-entrancy if the toggle is spammed (enter/exit are synchronous).
+local transitioning = false
+
+-- assigned by buildUI on touch devices: resets all on-screen touch input
+-- (thumbstick, up/down) to neutral. nil on desktop.
+local resetMobileInput = nil
 
 local connections = {}
 
@@ -126,6 +141,21 @@ local function setCharacterMovementEnabled(allowMovement)
 			controls:Disable()
 		end
 	end)
+end
+
+-- Best-effort read of whether character controls are currently enabled. The
+-- ControlModule keeps this on its `enabled` field; if a future version renames
+-- it we simply fall back to nil (treated as "was enabled") below.
+local function readControlsEnabled()
+	local controls = getPlayerControls()
+	if not controls then return nil end
+	local ok, value = pcall(function()
+		return controls.enabled
+	end)
+	if ok and type(value) == "boolean" then
+		return value
+	end
+	return nil
 end
 
 local function track(conn)
@@ -250,11 +280,26 @@ local gui          -- ScreenGui
 local toggleButton -- always-visible toggle
 local mobileControls -- container shown only while active on touch devices
 local speedLabel
+local sliderFill, sliderKnob -- promoted so the scroll-wheel handler can sync them
+
+-- Set the move speed (clamped) and keep the on-screen slider in sync. Used by
+-- both the slider drag and the desktop scroll-wheel handler.
+local function setMoveSpeed(value)
+	moveSpeed = math.clamp(math.floor(value + 0.5), CONFIG.MinSpeed, CONFIG.MaxSpeed)
+	local rel = (moveSpeed - CONFIG.MinSpeed) / (CONFIG.MaxSpeed - CONFIG.MinSpeed)
+	if speedLabel then speedLabel.Text = ("Speed: %d"):format(moveSpeed) end
+	if sliderFill then sliderFill.Size = UDim2.new(rel, 0, 1, 0) end
+	if sliderKnob then sliderKnob.Position = UDim2.new(rel, 0, 0.5, 0) end
+end
 
 local function buildUI()
 	gui = Instance.new("ScreenGui")
 	gui.Name = "FreeCamGui"
 	gui.ResetOnSpawn = false
+	-- NOTE: IgnoreGuiInset = true keeps GuiObject AbsolutePosition in raw screen
+	-- space, which is what lets the thumbstick / slider hit-math line up with
+	-- UserInputService touch positions (which also exclude the inset). If you
+	-- ever flip this, revisit updateStick() and applySliderFromX().
 	gui.IgnoreGuiInset = true
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	gui.DisplayOrder = 1000
@@ -318,7 +363,7 @@ local function buildUI()
 	stCorner.CornerRadius = UDim.new(1, 0)
 	stCorner.Parent = sliderTrack
 
-	local sliderFill = Instance.new("Frame")
+	sliderFill = Instance.new("Frame")
 	sliderFill.Name = "SliderFill"
 	sliderFill.BackgroundColor3 = Color3.fromRGB(90, 170, 255)
 	sliderFill.BorderSizePixel = 0
@@ -331,7 +376,7 @@ local function buildUI()
 	sfillCorner.CornerRadius = UDim.new(1, 0)
 	sfillCorner.Parent = sliderFill
 
-	local sliderKnob = Instance.new("TextButton")
+	sliderKnob = Instance.new("TextButton")
 	sliderKnob.Name = "SliderKnob"
 	sliderKnob.Size = UDim2.new(0, 18, 0, 18)
 	sliderKnob.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -348,36 +393,40 @@ local function buildUI()
 		local trackWidth = sliderTrack.AbsoluteSize.X
 		if trackWidth <= 0 then return end -- not laid out yet; avoid divide-by-zero
 		local rel = math.clamp((absX - sliderTrack.AbsolutePosition.X) / trackWidth, 0, 1)
-		moveSpeed = math.floor(CONFIG.MinSpeed + rel * (CONFIG.MaxSpeed - CONFIG.MinSpeed))
-		speedLabel.Text = ("Speed: %d"):format(moveSpeed)
-		sliderFill.Size = UDim2.new(rel, 0, 1, 0)
-		sliderKnob.Position = UDim2.new(rel, 0, 0.5, 0)
+		setMoveSpeed(CONFIG.MinSpeed + rel * (CONFIG.MaxSpeed - CONFIG.MinSpeed))
 	end
 
-	local draggingSlider = false
-	sliderKnob.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			draggingSlider = true
-		end
-	end)
-	UserInputService.InputChanged:Connect(function(input)
-		if draggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement
-			or input.UserInputType == Enum.UserInputType.Touch) then
+	-- Drag tracking. Mouse and touch are tracked separately: the mouse drag is a
+	-- simple flag (no multi-touch), while the touch drag is bound to the exact
+	-- finger that grabbed the slider so a second finger (e.g. the look finger)
+	-- can't hijack or prematurely release it.
+	local sliderMouseDown = false
+	local sliderTouchId = nil
+	local function beginSliderDrag(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			sliderMouseDown = true
 			applySliderFromX(input.Position.X)
+		elseif input.UserInputType == Enum.UserInputType.Touch then
+			sliderTouchId = input
+			applySliderFromX(input.Position.X)
+		end
+	end
+	sliderKnob.InputBegan:Connect(beginSliderDrag)
+	sliderTrack.InputBegan:Connect(beginSliderDrag)
+	UserInputService.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			if sliderMouseDown then applySliderFromX(input.Position.X) end
+		elseif input.UserInputType == Enum.UserInputType.Touch then
+			if sliderTouchId and input == sliderTouchId then
+				applySliderFromX(input.Position.X)
+			end
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			draggingSlider = false
-		end
-	end)
-	sliderTrack.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch then
-			draggingSlider = true
-			applySliderFromX(input.Position.X)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			sliderMouseDown = false
+		elseif sliderTouchId and input == sliderTouchId then
+			sliderTouchId = nil
 		end
 	end)
 
@@ -469,18 +518,37 @@ local function buildUI()
 		local upBtn   = makeVButton("UpButton",   "▲", -150)
 		local downBtn = makeVButton("DownButton", "▼", -78)
 
+		-- Track the holding finger by id so sliding it slightly off the button
+		-- doesn't drop the hold; only an actual release (global InputEnded) stops
+		-- vertical movement.
+		local upInputId, downInputId = nil, nil
 		upBtn.InputBegan:Connect(function(i)
-			if i.UserInputType == Enum.UserInputType.Touch then touchUp = true end
-		end)
-		upBtn.InputEnded:Connect(function(i)
-			if i.UserInputType == Enum.UserInputType.Touch then touchUp = false end
+			if i.UserInputType == Enum.UserInputType.Touch then
+				touchUp, upInputId = true, i
+			end
 		end)
 		downBtn.InputBegan:Connect(function(i)
-			if i.UserInputType == Enum.UserInputType.Touch then touchDown = true end
+			if i.UserInputType == Enum.UserInputType.Touch then
+				touchDown, downInputId = true, i
+			end
 		end)
-		downBtn.InputEnded:Connect(function(i)
-			if i.UserInputType == Enum.UserInputType.Touch then touchDown = false end
+		UserInputService.InputEnded:Connect(function(i)
+			if upInputId and i == upInputId then
+				touchUp, upInputId = false, nil
+			end
+			if downInputId and i == downInputId then
+				touchDown, downInputId = false, nil
+			end
 		end)
+
+		-- Exposed so focus-loss / exit can force every touch control back to
+		-- neutral even if an InputEnded was never delivered (app backgrounded,
+		-- interrupted gesture, etc.).
+		resetMobileInput = function()
+			resetStick()
+			touchUp, touchDown = false, false
+			upInputId, downInputId = nil, nil
+		end
 	end
 end
 
@@ -499,12 +567,23 @@ local function onInputChanged(input, processed)
 		yaw   = yaw   - delta.X * CONFIG.LookSensitivity * 0.01
 		pitch = math.clamp(pitch - delta.Y * CONFIG.LookSensitivity * 0.01, -1.54, 1.54)
 
+	elseif input.UserInputType == Enum.UserInputType.MouseWheel then
+		-- Desktop speed control (the mouse is locked, so the slider isn't usable
+		-- while active). input.Position.Z is +1 / -1 per notch.
+		setMoveSpeed(moveSpeed + input.Position.Z * CONFIG.ScrollSpeedStep)
+
 	elseif input.UserInputType == Enum.UserInputType.Touch then
-		-- Mobile look: only the touch we claimed as the "look" finger
-		if lookTouchId and input == lookTouchId then
-			local delta = input.Delta
-			yaw   = yaw   - delta.X * CONFIG.TouchLookSensitivity * 0.01
-			pitch = math.clamp(pitch - delta.Y * CONFIG.TouchLookSensitivity * 0.01, -1.54, 1.54)
+		-- Mobile look: only the touch we claimed as the "look" finger. Delta is
+		-- normalised by viewport height so the rotation a given swipe produces is
+		-- the same on every screen regardless of resolution / DPI.
+		if lookTouchId and input == lookTouchId and camera then
+			local height = camera.ViewportSize.Y
+			if height > 0 then
+				local delta = input.Delta
+				local scale = CONFIG.TouchLookSensitivity / height
+				yaw   = yaw   - delta.X * scale
+				pitch = math.clamp(pitch - delta.Y * scale, -1.54, 1.54)
+			end
 		end
 	end
 end
@@ -552,6 +631,9 @@ local function onRenderStep(dt)
 	-- The camera can briefly be nil/destroyed during a respawn; bail this frame.
 	if not camera or not camera.Parent then return end
 
+	-- Keep yaw bounded so it never accumulates into float-precision loss.
+	yaw = yaw % (2 * math.pi)
+
 	-- Build orientation
 	local rotation = CFrame.fromEulerAnglesYXZ(pitch, yaw, 0)
 
@@ -566,9 +648,13 @@ local function onRenderStep(dt)
 	if keysDown[CONFIG.UpKey]   then move += Vector3.new(0,  1, 0) end
 	if keysDown[CONFIG.DownKey] then move += Vector3.new(0, -1, 0) end
 
-	-- Mobile thumbstick (planar) + up/down buttons
-	if stickVector.Magnitude > 0.05 then
-		move += Vector3.new(stickVector.X, 0, -stickVector.Y)
+	-- Mobile thumbstick (planar): apply a radial deadzone, then rescale so motion
+	-- eases in from zero at the deadzone edge instead of snapping to a minimum.
+	local stickMag = stickVector.Magnitude
+	if stickMag > CONFIG.StickDeadzone then
+		local scaled = (stickMag - CONFIG.StickDeadzone) / (1 - CONFIG.StickDeadzone)
+		local dir = stickVector / stickMag
+		move += Vector3.new(dir.X * scaled, 0, -dir.Y * scaled)
 	end
 	if touchUp   then move += Vector3.new(0,  1, 0) end
 	if touchDown then move += Vector3.new(0, -1, 0) end
@@ -583,6 +669,11 @@ local function onRenderStep(dt)
 	end
 
 	if move.Magnitude > 0 then
+		-- Clamp the magnitude to 1 so diagonal / combined input isn't faster than
+		-- a single axis, while still allowing analog (partial) stick speeds < 1.
+		if move.Magnitude > 1 then
+			move = move.Unit
+		end
 		-- Move relative to where the camera looks, so W flies toward the crosshair.
 		local worldMove = rotation:VectorToWorldSpace(move)
 		camPosition += worldMove * speed * dt
@@ -595,11 +686,16 @@ end
 -- Enter / exit free cam
 ------------------------------------------------------------------------
 function toggleFreeCam()
+	-- Debounce: enter/exit are synchronous, so this just guards against a double
+	-- activation in the same frame leaving handlers half-connected.
+	if transitioning then return end
+	transitioning = true
 	if enabled then
 		exitFreeCam()
 	else
 		enterFreeCam()
 	end
+	transitioning = false
 end
 
 function enterFreeCam()
@@ -615,7 +711,9 @@ function enterFreeCam()
 	camera.CameraType = Enum.CameraType.Scriptable
 
 	-- Freeze the character: stop WASD / the default mobile stick from walking
-	-- the avatar around while we fly the camera.
+	-- the avatar around while we fly the camera. Remember the prior state so we
+	-- don't re-enable movement the game had intentionally locked.
+	controlsWereEnabled = readControlsEnabled()
 	setCharacterMovementEnabled(false)
 
 	-- Hide everything for the clean shot.
@@ -650,8 +748,12 @@ function exitFreeCam()
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
 
-	-- Give character movement back.
-	setCharacterMovementEnabled(true)
+	-- Give character movement back -- unless the game had it disabled before we
+	-- entered (e.g. a cutscene), in which case we leave it as we found it.
+	if controlsWereEnabled ~= false then
+		setCharacterMovementEnabled(true)
+	end
+	controlsWereEnabled = nil
 
 	-- Disconnect runtime handlers.
 	pcall(function() RunService:UnbindFromRenderStep("FreeCamUpdate") end)
@@ -674,6 +776,7 @@ function exitFreeCam()
 	table.clear(keysDown)
 	stickVector = Vector2.new(0, 0)
 	touchUp, touchDown, lookTouchId = false, false, nil
+	if resetMobileInput then resetMobileInput() end
 end
 
 ------------------------------------------------------------------------
@@ -695,12 +798,14 @@ Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
 	end
 end)
 
--- #2: If the window loses focus while keys are held, InputEnded never fires and
--- the camera would keep drifting. Clear all held movement input on focus loss.
+-- #2/#13: If focus is lost or a touch is interrupted (alt-tab, app backgrounded,
+-- system gesture), InputEnded may never fire and the camera would keep drifting.
+-- Force all held movement input back to neutral.
 UserInputService.WindowFocusReleased:Connect(function()
 	table.clear(keysDown)
 	stickVector = Vector2.new(0, 0)
 	touchUp, touchDown, lookTouchId = false, false, nil
+	if resetMobileInput then resetMobileInput() end
 end)
 
 -- #1: If the character respawns while free cam is active, the engine swaps in a

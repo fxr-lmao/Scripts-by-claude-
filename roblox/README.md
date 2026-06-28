@@ -20,7 +20,7 @@ Roblox Luau scripts. Unless noted otherwise, each is a **LocalScript** meant for
 | Up / Down | `E` / `Q` |
 | Look | Mouse |
 | Boost / Slow | `Shift` / `Ctrl` |
-| Speed | Slider (top of screen) |
+| Speed | Mouse scroll wheel (the cursor is locked while active) |
 
 **Mobile**
 
