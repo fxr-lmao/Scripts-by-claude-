@@ -6,6 +6,7 @@
 	  - Detaches the camera from your character so you can fly it anywhere.
 	  - Desktop:  WASD / arrows to move, mouse to look, Q/E down/up,
 	              Shift = boost, Ctrl = slow, scroll wheel = adjust speed.
+	              Hold Right-Click to unlock mouse and interact with UI.
 	  - Mobile:   on-screen left thumbstick to move, drag the right side of
 	              the screen to look, on-screen Up/Down buttons, and a
 	              speed slider. Everything is touch-driven.
@@ -74,6 +75,7 @@ local camPosition    = Vector3.new()
 
 -- desktop keyboard movement state
 local keysDown = {}
+local isMouseUnlocked = false -- QOL: Track if user is holding RMB to use UI
 
 -- mobile movement vector coming from the on-screen thumbstick (-1..1 each axis)
 local stickVector = Vector2.new(0, 0)
@@ -108,8 +110,17 @@ local toggleFreeCam, enterFreeCam, exitFreeCam
 ------------------------------------------------------------------------
 -- Helpers
 ------------------------------------------------------------------------
-local function isMobile()
-	return UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+-- Touch controls (thumbstick + on-screen buttons) appear whenever the device
+-- has a touchscreen -- including hybrids like touchscreen laptops.
+local function hasTouchControls()
+	return UserInputService.TouchEnabled
+end
+
+-- Desktop affordances (mouse-lock free-look, crosshair, help text, right-click
+-- to unlock) apply whenever a mouse is present -- also including hybrids, so a
+-- touchscreen laptop gets BOTH the thumbstick and proper mouse free-look.
+local function hasMouse()
+	return UserInputService.MouseEnabled
 end
 
 -- Fetch (and cache) the default character controls object. This is the
@@ -281,6 +292,8 @@ local toggleButton -- always-visible toggle
 local mobileControls -- container shown only while active on touch devices
 local speedLabel
 local sliderFill, sliderKnob -- promoted so the scroll-wheel handler can sync them
+local crosshair    -- QOL: crosshair for desktop
+local helpText     -- QOL: keybind hints for desktop
 
 -- Set the move speed (clamped) and keep the on-screen slider in sync. Used by
 -- both the slider drag and the desktop scroll-wheel handler.
@@ -309,8 +322,8 @@ local function buildUI()
 	toggleButton = Instance.new("TextButton")
 	toggleButton.Name = "ToggleButton"
 	toggleButton.Size = UDim2.new(0, 130, 0, 44)
-	toggleButton.Position = UDim2.new(1, -140, 0, 10)
-	toggleButton.AnchorPoint = Vector2.new(0, 0)
+	toggleButton.Position = UDim2.new(1, -10, 0, 10)
+	toggleButton.AnchorPoint = Vector2.new(1, 0) -- Fixed Alignment
 	toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
 	toggleButton.BackgroundTransparency = 0.2
 	toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -322,6 +335,42 @@ local function buildUI()
 	local tbCorner = Instance.new("UICorner")
 	tbCorner.CornerRadius = UDim.new(0, 8)
 	tbCorner.Parent = toggleButton
+
+	-- ---- QOL: Crosshair (Desktop) ----
+	crosshair = Instance.new("Frame")
+	crosshair.Name = "Crosshair"
+	crosshair.Size = UDim2.new(0, 10, 0, 10)
+	crosshair.Position = UDim2.new(0.5, 0, 0.5, 0)
+	crosshair.AnchorPoint = Vector2.new(0.5, 0.5)
+	crosshair.BackgroundTransparency = 1
+	crosshair.Visible = false
+	crosshair.Parent = gui
+	local dot = Instance.new("Frame")
+	dot.Size = UDim2.new(0, 4, 0, 4)
+	dot.Position = UDim2.new(0.5, 0, 0.5, 0)
+	dot.AnchorPoint = Vector2.new(0.5, 0.5)
+	dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	dot.BackgroundTransparency = 0.5
+	local dotCorner = Instance.new("UICorner")
+	dotCorner.CornerRadius = UDim.new(1, 0)
+	dotCorner.Parent = dot
+	dot.Parent = crosshair
+
+	-- ---- QOL: Help Text (Desktop) ----
+	helpText = Instance.new("TextLabel")
+	helpText.Name = "HelpText"
+	helpText.Size = UDim2.new(0, 300, 0, 120)
+	helpText.Position = UDim2.new(0, 15, 1, -130)
+	helpText.BackgroundTransparency = 1
+	helpText.TextColor3 = Color3.fromRGB(255, 255, 255)
+	helpText.TextTransparency = 0.4
+	helpText.Font = Enum.Font.Gotham
+	helpText.TextSize = 14
+	helpText.TextXAlignment = Enum.TextXAlignment.Left
+	helpText.TextYAlignment = Enum.TextYAlignment.Bottom
+	helpText.Text = "WASD: Move\nQ/E: Down/Up\nShift: Boost | Ctrl: Slow\nMouse Wheel: Speed\nRight-Click: Unlock Mouse\nP: Exit"
+	helpText.Visible = false
+	helpText.Parent = gui
 
 	-- ---- Mobile / active controls container ----
 	mobileControls = Instance.new("Frame")
@@ -431,9 +480,9 @@ local function buildUI()
 	end)
 
 	---------------------------------------------------------------
-	-- Mobile-only: thumbstick + up/down buttons
+	-- Touch-only: thumbstick + up/down buttons
 	---------------------------------------------------------------
-	if isMobile() then
+	if hasTouchControls() then
 		-- Left thumbstick for planar movement
 		local stickBase = Instance.new("Frame")
 		stickBase.Name = "StickBase"
@@ -562,10 +611,13 @@ local function onInputChanged(input, processed)
 	if not enabled then return end
 
 	if input.UserInputType == Enum.UserInputType.MouseMovement then
-		-- Desktop look (mouse is locked to centre while active)
-		local delta = input.Delta
-		yaw   = yaw   - delta.X * CONFIG.LookSensitivity * 0.01
-		pitch = math.clamp(pitch - delta.Y * CONFIG.LookSensitivity * 0.01, -1.54, 1.54)
+		-- QOL: Only look around if the mouse is locked (not interacting with UI)
+		if not isMouseUnlocked then
+			-- Desktop look (mouse is locked to centre while active)
+			local delta = input.Delta
+			yaw   = yaw   - delta.X * CONFIG.LookSensitivity * 0.01
+			pitch = math.clamp(pitch - delta.Y * CONFIG.LookSensitivity * 0.01, -1.54, 1.54)
+		end
 
 	elseif input.UserInputType == Enum.UserInputType.MouseWheel then
 		-- Desktop speed control (the mouse is locked, so the slider isn't usable
@@ -590,6 +642,15 @@ end
 
 local function onInputBegan(input, processed)
 	if not enabled or not camera then return end
+
+	-- QOL: Hold Right Mouse Button to unlock the mouse for UI interaction
+	if input.UserInputType == Enum.UserInputType.MouseButton2 and hasMouse() then
+		isMouseUnlocked = true
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+		return
+	end
+
 	-- Claim a right-side touch (not over UI) as the look finger.
 	if input.UserInputType == Enum.UserInputType.Touch and not processed and not lookTouchId then
 		if input.Position.X > camera.ViewportSize.X * 0.5 then
@@ -599,6 +660,13 @@ local function onInputBegan(input, processed)
 end
 
 local function onInputEnded(input)
+	-- QOL: Release Right Mouse Button to re-lock the mouse
+	if input.UserInputType == Enum.UserInputType.MouseButton2 and hasMouse() and enabled then
+		isMouseUnlocked = false
+		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		UserInputService.MouseIconEnabled = false
+	end
+
 	if lookTouchId and input == lookTouchId then
 		lookTouchId = nil
 	end
@@ -610,11 +678,13 @@ end
 local function onKeyDown(input, processed)
 	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 
+	-- Bug Fix: Do not trigger freecam or register keys if the user is typing in chat
+	if processed then return end
+
 	if input.KeyCode == CONFIG.ToggleKey then
 		toggleFreeCam()
 		return
 	end
-	if processed then return end
 	keysDown[input.KeyCode] = true
 end
 
@@ -722,10 +792,16 @@ function enterFreeCam()
 	toggleButton.Text = "Exit Cam"
 	toggleButton.BackgroundColor3 = Color3.fromRGB(120, 40, 40)
 
-	-- Lock & hide the mouse on desktop for free-look.
-	if not isMobile() then
+	-- Lock & hide the mouse for free-look whenever a mouse is present (covers
+	-- hybrids: a touchscreen laptop gets the thumbstick AND mouse free-look).
+	if hasMouse() then
+		isMouseUnlocked = false
 		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
 		UserInputService.MouseIconEnabled = false
+
+		-- QOL: Show desktop helpers
+		crosshair.Visible = true
+		helpText.Visible = true
 	end
 
 	-- Connect runtime handlers. (BindToRenderStep returns nil, so it is not tracked.)
@@ -747,6 +823,10 @@ function exitFreeCam()
 	-- Restore mouse.
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
+
+	-- QOL: Hide desktop helpers
+	if crosshair then crosshair.Visible = false end
+	if helpText then helpText.Visible = false end
 
 	-- Give character movement back -- unless the game had it disabled before we
 	-- entered (e.g. a cutscene), in which case we leave it as we found it.
@@ -776,6 +856,7 @@ function exitFreeCam()
 	table.clear(keysDown)
 	stickVector = Vector2.new(0, 0)
 	touchUp, touchDown, lookTouchId = false, false, nil
+	isMouseUnlocked = false
 	if resetMobileInput then resetMobileInput() end
 end
 
@@ -805,6 +886,7 @@ UserInputService.WindowFocusReleased:Connect(function()
 	table.clear(keysDown)
 	stickVector = Vector2.new(0, 0)
 	touchUp, touchDown, lookTouchId = false, false, nil
+	isMouseUnlocked = false
 	if resetMobileInput then resetMobileInput() end
 end)
 

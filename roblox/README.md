@@ -21,6 +21,11 @@ Roblox Luau scripts. Unless noted otherwise, each is a **LocalScript** meant for
 | Look | Mouse |
 | Boost / Slow | `Shift` / `Ctrl` |
 | Speed | Mouse scroll wheel (the cursor is locked while active) |
+| Unlock cursor | Hold **Right-Click** to use the slider / exit button, release to re-lock |
+
+A subtle crosshair marks the centre, and a keybind hint shows in the bottom-left
+while active. A keybind hint and crosshair only appear when a mouse is present, so
+touchscreen laptops get the on-screen thumbstick **and** mouse free-look.
 
 **Mobile**
 
