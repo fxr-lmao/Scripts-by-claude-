@@ -47,7 +47,7 @@ the supported `SetCoreGuiEnabled` / `SetCore` / `GuiService` APIs to hide UI.
 Run it with an executor:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/fxr-lmao/Scripts-by-claude-/refs/heads/claude/cinematic-tools-ui-jri78q/roblox/CinematicHub.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/fxr-lmao/Scripts-by-claude-/refs/heads/claude/hub-freecam-qol-0jgtb0/roblox/CinematicHub.lua"))()
 ```
 
 `CinematicHub.lua` is a thin **loader**; it fetches the modules in `cinematic/`

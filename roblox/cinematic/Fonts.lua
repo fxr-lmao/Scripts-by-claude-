@@ -52,6 +52,10 @@ return function(ctx, Lib)
 	local fontChosen = false -- don't touch game UI until the user actually picks
 
 	local function applyToInstance(inst, fontEnum)
+		-- Leave the font-list preview buttons alone: each one renders its own
+		-- font as a live preview, so re-skinning them would make every option
+		-- look identical and you couldn't compare/pick another.
+		if inst:GetAttribute("CinematicFontPreview") then return end
 		if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
 			inst.Font = fontEnum
 		end
@@ -112,6 +116,8 @@ return function(ctx, Lib)
 				Text = fontName,
 				LayoutOrder = i,
 			}, scroll)
+			-- Tag so the font modifier never overwrites this preview's own font.
+			btn:SetAttribute("CinematicFontPreview", true)
 			Lib.corner(btn, 6)
 			btn.Activated:Connect(function() selectFont(fontEnum) end)
 		end

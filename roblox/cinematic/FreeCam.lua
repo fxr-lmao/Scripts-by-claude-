@@ -33,6 +33,28 @@ return function(ctx, Lib)
 	local fcMobileLayer = nil
 	local exitButton = nil
 	local anchoredPart, wasAnchored = nil, false
+	local disabledControls = nil
+
+	-- Disable the default character controls (PlayerModule) so movement input —
+	-- WASD, the mobile thumbstick, gamepad — never walks/turns your avatar while
+	-- you fly. Anchoring (below) handles residual physics; this handles input.
+	-- Wrapped in pcall: a few games strip or replace PlayerModule.
+	local function disableCharacterControls()
+		pcall(function()
+			local scripts = LocalPlayer:FindFirstChild("PlayerScripts")
+			local moduleScript = scripts and scripts:FindFirstChild("PlayerModule")
+			if not moduleScript then return end
+			local controls = require(moduleScript):GetControls()
+			controls:Disable()
+			disabledControls = controls
+		end)
+	end
+	local function restoreCharacterControls()
+		if disabledControls then
+			pcall(function() disabledControls:Enable() end)
+			disabledControls = nil
+		end
+	end
 
 	local function track(conn) table.insert(FC.connections, conn) end
 	local function clearConnections()
@@ -125,6 +147,8 @@ return function(ctx, Lib)
 		FC.camera.CameraType = Enum.CameraType.Scriptable
 
 		-- Freeze the character so WASD/physics don't walk it off while you fly.
+		-- Disable input-driven movement first, then anchor against stray physics.
+		disableCharacterControls()
 		local char = LocalPlayer.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if root then
@@ -159,11 +183,13 @@ return function(ctx, Lib)
 		if fcMobileLayer then fcMobileLayer.Visible = false end
 		setButtonState()
 
-		-- Unfreeze the character (restore its previous anchored state).
+		-- Unfreeze the character (restore its previous anchored state) and hand
+		-- movement back to the default controls.
 		if anchoredPart then
 			if anchoredPart.Parent then anchoredPart.Anchored = wasAnchored end
 			anchoredPart = nil
 		end
+		restoreCharacterControls()
 
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
@@ -234,13 +260,19 @@ return function(ctx, Lib)
 		}, ctx.gui)
 		fcMobileLayer = layer
 
+		-- Dynamic thumbstick: hidden until you touch the left half of the screen,
+		-- then it spawns centred under your thumb and the knob trails it (like
+		-- Roblox's own DynamicThumbstick). Lift off and it disappears again.
+		local STICK_RADIUS = 60
 		local stickBase = make("Frame", {
-			Size = UDim2.new(0, 120, 0, 120),
-			Position = UDim2.new(0, 40, 1, -160),
+			Size = UDim2.new(0, STICK_RADIUS * 2, 0, STICK_RADIUS * 2),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0, 0, 0, 0),
 			BackgroundColor3 = THEME.Panel,
 			BackgroundTransparency = 0.5,
+			Visible = false,
 		}, layer)
-		corner(stickBase, 60)
+		corner(stickBase, STICK_RADIUS)
 
 		local stickKnob = make("Frame", {
 			Size = UDim2.new(0, 52, 0, 52),
@@ -251,34 +283,42 @@ return function(ctx, Lib)
 		}, stickBase)
 		corner(stickKnob, 26)
 
-		local stickInputId = nil
-		local function updateStick(pos)
-			local center = stickBase.AbsolutePosition + stickBase.AbsoluteSize / 2
-			local delta = Vector2.new(pos.X, pos.Y) - center
-			local radius = stickBase.AbsoluteSize.X / 2
-			if delta.Magnitude > radius then delta = delta.Unit * radius end
+		local moveTouch, stickOrigin = nil, Vector2.new()
+		local function beginStick(pos)
+			stickOrigin = Vector2.new(pos.X, pos.Y)
+			stickBase.Position = UDim2.new(0, pos.X, 0, pos.Y)
+			stickKnob.Position = UDim2.new(0.5, 0, 0.5, 0)
+			stickBase.Visible = true
+			FC.stickVector = Vector2.new(0, 0)
+		end
+		local function moveStick(pos)
+			local delta = Vector2.new(pos.X, pos.Y) - stickOrigin
+			if delta.Magnitude > STICK_RADIUS then delta = delta.Unit * STICK_RADIUS end
 			stickKnob.Position = UDim2.new(0.5, delta.X, 0.5, delta.Y)
-			FC.stickVector = Vector2.new(delta.X / radius, -delta.Y / radius)
+			FC.stickVector = Vector2.new(delta.X / STICK_RADIUS, -delta.Y / STICK_RADIUS)
 		end
 		local function resetStick()
-			stickInputId = nil
+			moveTouch = nil
+			stickBase.Visible = false
 			FC.stickVector = Vector2.new(0, 0)
-			stickKnob.Position = UDim2.new(0.5, 0, 0.5, 0)
 		end
 
-		stickBase.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.Touch then
-				stickInputId = input
-				updateStick(input.Position)
+		-- Left half = movement (right half is claimed for look in onInputBegan).
+		UserInputService.InputBegan:Connect(function(input, processed)
+			if not FC.enabled or processed or moveTouch then return end
+			if input.UserInputType ~= Enum.UserInputType.Touch then return end
+			if input.Position.X <= FC.camera.ViewportSize.X * 0.5 then
+				moveTouch = input
+				beginStick(input.Position)
 			end
 		end)
 		UserInputService.InputChanged:Connect(function(input)
-			if stickInputId and input == stickInputId and input.UserInputType == Enum.UserInputType.Touch then
-				updateStick(input.Position)
+			if moveTouch and input == moveTouch and input.UserInputType == Enum.UserInputType.Touch then
+				moveStick(input.Position)
 			end
 		end)
 		UserInputService.InputEnded:Connect(function(input)
-			if stickInputId and input == stickInputId then resetStick() end
+			if moveTouch and input == moveTouch then resetStick() end
 		end)
 
 		local function makeVButton(text, yOffset)
