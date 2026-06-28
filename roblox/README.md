@@ -7,40 +7,8 @@ Roblox Luau scripts. Unless noted otherwise, each is a **LocalScript** meant for
 
 | Script | Type | Description |
 |--------|------|-------------|
-| [`FreeCam.lua`](FreeCam.lua) | LocalScript | Cross-platform cinematic free camera. Detaches from your character and hides **all** UI (player + core/topbar/chat/backpack/health/leaderboard) for clean shots. Desktop (WASD + mouse) and full mobile (thumbstick, ▲/▼, drag-to-look, speed slider). Toggle with **P** or the on-screen button. |
 | [`CinematicHub.lua`](CinematicHub.lua) | Loader | All-in-one cinematic tools hub — one floating button opens a tabbed, exploit-hub-style panel for **Free Cam**, **Shaders**, **Fonts**, **World**, and **Extras**. Thin loader that pulls the modules in [`cinematic/`](cinematic). Everything is client-side and visual only — no exploits. |
 | [`cinematic/`](cinematic) | Modules | The hub's source, split into `Lib`, `Shell`, `FreeCam`, `Shaders`, `Fonts`, `World`, `Extras`. |
-
-## FreeCam.lua — controls
-
-**Desktop**
-
-| Action | Input |
-|--------|-------|
-| Toggle | `P` or on-screen button |
-| Move | `W` `A` `S` `D` / arrows |
-| Up / Down | `E` / `Q` |
-| Look | Mouse |
-| Boost / Slow | `Shift` / `Ctrl` |
-| Speed | Mouse scroll wheel (the cursor is locked while active) |
-| Unlock cursor | Hold **Right-Click** to use the slider / exit button, release to re-lock |
-
-A subtle crosshair marks the centre, and a keybind hint shows in the bottom-left
-while active. A keybind hint and crosshair only appear when a mouse is present, so
-touchscreen laptops get the on-screen thumbstick **and** mouse free-look.
-
-**Mobile**
-
-| Action | Input |
-|--------|-------|
-| Toggle | On-screen **Free Cam** button |
-| Move | Touch & drag anywhere on the left half — a joystick spawns under your thumb and trails it |
-| Up / Down | ▲ / ▼ buttons |
-| Look | Drag the right half of the screen |
-| Speed | Slider (top of screen) |
-
-Purely client-side — it only moves your camera, never your character, and uses
-the supported `SetCoreGuiEnabled` / `SetCore` / `GuiService` APIs to hide UI.
 
 ## CinematicHub.lua
 
@@ -54,7 +22,9 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/fxr-lmao/Scripts-by-c
 from the same branch. The loader's `SOURCE.ref` must point at a branch/commit
 that contains `cinematic/` — switch it to `refs/heads/main` after merging. (In
 Studio, parent the `cinematic/` ModuleScripts under the loader and it `require`s
-them locally instead of over HTTP.)
+them locally instead of over HTTP.) It's also auto-execute safe — it waits for
+the game and local player to load, so it can live in an executor's autoexec
+folder.
 
 | Action | Input |
 |--------|-------|
@@ -64,8 +34,8 @@ them locally instead of over HTTP.)
 Every tab page **scrolls by dragging anywhere on it** (no scroll wheel needed)
 as well as via the scrollbar.
 
-- **Free Cam** — same controls as `FreeCam.lua`; hides the launcher for a clean
-  shot, with an on-screen Exit button on mobile.
+- **Free Cam** — detaches the camera and hides all UI for a clean shot; the
+  launcher is hidden while flying, with an always-there on-screen Exit button.
 - **Shaders** — preset buttons (Default, Cinematic, Noir, Warm, Cold, Dreamy,
   Horror, Vintage, Vaporwave) plus manual Bloom / Blur / Brightness / Contrast /
   Saturation / Sun Rays sliders. Bloom uses a low threshold so the glow is
@@ -73,15 +43,40 @@ as well as via the scrollbar.
 - **Fonts** — click a font (35+ options) to re-skin the hub, every other UI
   under `PlayerGui`, and chat (window + bubbles via `TextChatService`). Inert
   until you pick one, then a single `DescendantAdded` listener catches new UI —
-  no polling loops, so no frame-rate overhead.
+  no polling loops, so no frame-rate overhead. The font-list buttons keep their
+  own font so each stays a live preview.
 - **World** — time-of-day slider + Dawn/Noon/Sunset/Night buttons, camera FOV,
   atmosphere haze, a freeze-time toggle that genuinely holds the clock, and a
   timelapse toggle (with speed) that sweeps the sun.
 - **Extras** — letterbox bars (+ size), hide nameplates/healthbars, hide game
   UI, and Reset All.
 
-Run either `FreeCam.lua` **or** `CinematicHub.lua` — the hub already includes
-free cam, so you don't need both.
+### Free Cam — controls
+
+**Desktop**
+
+| Action | Input |
+|--------|-------|
+| Toggle | `P` or the tab's **Enter / Exit Free Cam** button |
+| Move | `W` `A` `S` `D` / arrows |
+| Up / Down | `E` / `Q` |
+| Look | Mouse (cursor locks to centre while active) |
+| Boost / Slow | `Shift` / `Ctrl` |
+| Speed | **Move Speed** slider in the tab |
+
+**Mobile**
+
+| Action | Input |
+|--------|-------|
+| Toggle | Free Cam tab button, or the on-screen **Exit** button |
+| Move | Drag anywhere on the **left half** — a joystick spawns under your thumb and trails it |
+| Up / Down | ▲ / ▼ buttons |
+| Look | Drag the **right half** of the screen |
+| Speed | **Move Speed** slider in the tab |
+
+Purely client-side — it only moves your camera, never your character, and uses
+the supported `SetCoreGuiEnabled` / `SetCore` / `GuiService` APIs to hide UI.
 While the free cam is active, character controls are disabled via the
-`PlayerModule`, so moving the joystick (or pressing WASD) flies the camera
-**without walking your avatar around**. Controls are restored on exit.
+`PlayerModule` (and the root part anchored), so moving the joystick or pressing
+WASD flies the camera **without walking your avatar around**. Both are restored
+on exit.
