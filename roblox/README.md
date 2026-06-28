@@ -21,14 +21,19 @@ Roblox Luau scripts. Unless noted otherwise, each is a **LocalScript** meant for
 | Up / Down | `E` / `Q` |
 | Look | Mouse |
 | Boost / Slow | `Shift` / `Ctrl` |
-| Speed | Slider (top of screen) |
+| Speed | Mouse scroll wheel (the cursor is locked while active) |
+| Unlock cursor | Hold **Right-Click** to use the slider / exit button, release to re-lock |
+
+A subtle crosshair marks the centre, and a keybind hint shows in the bottom-left
+while active. A keybind hint and crosshair only appear when a mouse is present, so
+touchscreen laptops get the on-screen thumbstick **and** mouse free-look.
 
 **Mobile**
 
 | Action | Input |
 |--------|-------|
 | Toggle | On-screen **Free Cam** button |
-| Move | Left thumbstick |
+| Move | Touch & drag anywhere on the left half — a joystick spawns under your thumb and trails it |
 | Up / Down | ▲ / ▼ buttons |
 | Look | Drag the right half of the screen |
 | Speed | Slider (top of screen) |
@@ -57,3 +62,6 @@ polling loops, so it won't add frame-rate overhead.
 
 Run either `FreeCam.lua` **or** `CinematicHub.lua` — the hub already includes
 free cam, so you don't need both.
+While the free cam is active, character controls are disabled via the
+`PlayerModule`, so moving the joystick (or pressing WASD) flies the camera
+**without walking your avatar around**. Controls are restored on exit.
