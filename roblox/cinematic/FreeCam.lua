@@ -31,6 +31,8 @@ return function(ctx, Lib)
 	}
 
 	local fcMobileLayer = nil
+	local exitButton = nil
+	local anchoredPart, wasAnchored = nil, false
 
 	local function track(conn) table.insert(FC.connections, conn) end
 	local function clearConnections()
@@ -121,9 +123,20 @@ return function(ctx, Lib)
 		FC.pitch = math.asin(math.clamp(look.Y, -1, 1))
 
 		FC.camera.CameraType = Enum.CameraType.Scriptable
+
+		-- Freeze the character so WASD/physics don't walk it off while you fly.
+		local char = LocalPlayer.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if root then
+			anchoredPart = root
+			wasAnchored = root.Anchored
+			root.Anchored = true
+		end
+
 		Lib.setGameUIHidden(true, ctx.gui)
 		ctx.hub.Visible = false
 		ctx.launcher.Visible = false
+		if exitButton then exitButton.Visible = true end
 		if fcMobileLayer then fcMobileLayer.Visible = true end
 		setButtonState()
 
@@ -142,8 +155,15 @@ return function(ctx, Lib)
 		FC.enabled = false
 		Lib.setGameUIHidden(false, ctx.gui)
 		ctx.launcher.Visible = true
+		if exitButton then exitButton.Visible = false end
 		if fcMobileLayer then fcMobileLayer.Visible = false end
 		setButtonState()
+
+		-- Unfreeze the character (restore its previous anchored state).
+		if anchoredPart then
+			if anchoredPart.Parent then anchoredPart.Anchored = wasAnchored end
+			anchoredPart = nil
+		end
 
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
@@ -164,6 +184,22 @@ return function(ctx, Lib)
 	local function toggle()
 		if FC.enabled then exitFreeCam() else enterFreeCam() end
 	end
+
+	-- Floating exit button shown on every platform while flying (the launcher
+	-- is hidden for a clean shot, so this is the always-there way back out).
+	exitButton = make("TextButton", {
+		Name = "FreeCamExitButton",
+		Size = UDim2.new(0, 150, 0, 40),
+		Position = UDim2.new(0.5, -75, 0, 12),
+		BackgroundColor3 = THEME.Danger,
+		TextColor3 = Color3.new(1, 1, 1),
+		Font = Lib.hubFont,
+		TextSize = 15,
+		Text = "Exit Free Cam",
+		Visible = false,
+	}, ctx.gui)
+	corner(exitButton, 8)
+	exitButton.Activated:Connect(toggle)
 
 	toggleButton = make("TextButton", {
 		Size = UDim2.new(1, 0, 0, 40),
@@ -265,18 +301,7 @@ return function(ctx, Lib)
 		downBtn.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch then FC.touchDown = true end end)
 		downBtn.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch then FC.touchDown = false end end)
 
-		local exitBtn = make("TextButton", {
-			Name = "ExitButton",
-			Size = UDim2.new(0, 110, 0, 40),
-			Position = UDim2.new(0.5, -55, 0, 12),
-			BackgroundColor3 = THEME.Danger,
-			TextColor3 = Color3.new(1, 1, 1),
-			Font = Lib.hubFont,
-			TextSize = 15,
-			Text = "Exit Cam",
-		}, layer)
-		corner(exitBtn, 8)
-		exitBtn.Activated:Connect(toggle)
+		-- (Exit button is the universal one created above, shown on all platforms.)
 	end
 
 	------------------------------------------------------------------

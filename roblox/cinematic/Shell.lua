@@ -42,7 +42,7 @@ return function(Lib)
 	local launcher = make("TextButton", {
 		Name = "Launcher",
 		Size = UDim2.new(0, 150, 0, 46),
-		Position = UDim2.new(0, 16, 0, 16),
+		Position = UDim2.new(0.5, -75, 0, 12), -- middle-top
 		BackgroundColor3 = THEME.Panel,
 		TextColor3 = THEME.Text,
 		Font = Lib.hubFont,
