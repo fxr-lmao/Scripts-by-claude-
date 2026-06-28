@@ -117,6 +117,9 @@ local launcher = make("TextButton", {
 corner(launcher, 10)
 stroke(launcher, THEME.Accent, 1)
 
+-- Set true while a launcher press turns into an actual drag, so the click
+-- that ends the drag doesn't also toggle the hub open/closed.
+local launcherDragged = false
 do
 	-- simple drag-to-move for the launcher
 	local dragging, dragStart, startPos = false, nil, nil
@@ -124,6 +127,7 @@ do
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
+			launcherDragged = false
 			dragStart = input.Position
 			startPos = launcher.Position
 		end
@@ -132,6 +136,7 @@ do
 		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
 			or input.UserInputType == Enum.UserInputType.Touch) then
 			local delta = input.Position - dragStart
+			if delta.Magnitude > 6 then launcherDragged = true end
 			launcher.Position = UDim2.new(
 				startPos.X.Scale, startPos.X.Offset + delta.X,
 				startPos.Y.Scale, startPos.Y.Offset + delta.Y
@@ -493,6 +498,10 @@ local FC = {
 	connections = {},
 }
 
+-- Built later inside the mobile-only block; fcEnter/fcExit toggle it directly
+-- so we don't need a permanent per-frame connection to manage its visibility.
+local fcMobileLayer = nil
+
 local function fcTrack(conn) table.insert(FC.connections, conn) end
 local function fcClearConnections()
 	for _, conn in ipairs(FC.connections) do
@@ -628,7 +637,9 @@ local function fcEnter()
 
 	FC.camera.CameraType = Enum.CameraType.Scriptable
 	fcSetUIVisible(false)
-	hub.Visible = false -- get the hub out of the shot too
+	hub.Visible = false      -- get the hub out of the shot too
+	launcher.Visible = false -- ...and the floating button (clean shot)
+	if fcMobileLayer then fcMobileLayer.Visible = true end
 	fcSetButtonState()
 
 	if not isMobile() then
@@ -645,6 +656,8 @@ end
 local function fcExit()
 	FC.enabled = false
 	fcSetUIVisible(true)
+	launcher.Visible = true
+	if fcMobileLayer then fcMobileLayer.Visible = false end
 	fcSetButtonState()
 
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
@@ -703,6 +716,7 @@ if isMobile() then
 		BackgroundTransparency = 1,
 		Visible = false,
 	}, gui)
+	fcMobileLayer = mobileLayer
 
 	local stickBase = make("Frame", {
 		Size = UDim2.new(0, 120, 0, 120),
@@ -771,11 +785,23 @@ if isMobile() then
 	downBtn.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch then FC.touchDown = true end end)
 	downBtn.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.Touch then FC.touchDown = false end end)
 
-	-- keep the mobile move/look layer visible only while free cam is active
-	RunService.RenderStepped:Connect(function()
-		mobileLayer.Visible = FC.enabled
-	end)
+	-- On-screen exit (mobile has no P key, and the launcher is hidden during
+	-- free cam, so without this there'd be no way back out).
+	local exitBtn = make("TextButton", {
+		Name = "ExitButton",
+		Size = UDim2.new(0, 110, 0, 40),
+		Position = UDim2.new(0.5, -55, 0, 12),
+		BackgroundColor3 = THEME.Danger,
+		TextColor3 = Color3.new(1, 1, 1),
+		Font = hubFont,
+		TextSize = 15,
+		Text = "Exit Cam",
+	}, mobileLayer)
+	corner(exitBtn, 8)
+	exitBtn.Activated:Connect(fcToggle)
 end
+
+-- fcMobileLayer stays nil on desktop, where P / the relaunched button handle exit.
 
 ------------------------------------------------------------------------
 -- ============================ SHADERS TAB ============================
@@ -849,6 +875,11 @@ local PRESETS = {
 		fx.sunRays.Intensity, fx.sunRays.Spread = 0, 0.5
 	end,
 }
+
+-- BloomEffect and DepthOfFieldEffect ship with non-zero defaults, so freshly
+-- parenting them to Lighting would instantly blur/glow the screen before the
+-- user picks anything. Neutralize them up front.
+PRESETS.Default()
 
 local presetOrder = { "Default", "Cinematic", "Noir", "Warm", "Cold", "Dreamy", "Horror" }
 local presetButtonsDef = {}
@@ -989,8 +1020,14 @@ end
 local worldPage = addTab("World", 4)
 layoutColumn(worldPage)
 
+-- Freeze state lives here so the Time-of-Day slider, the toggle, and Reset All
+-- can all see it (they're all later in this same chunk).
+local timeFrozen = false
+local frozenClockTime = Lighting.ClockTime
+
 addSlider(worldPage, 1, "Time of Day", 0, 24, Lighting.ClockTime, function(v)
 	Lighting.ClockTime = v
+	frozenClockTime = v -- keep the freeze target in sync with manual changes
 end)
 
 addSlider(worldPage, 2, "Camera FOV", 20, 120, Workspace.CurrentCamera.FieldOfView, function(v)
@@ -1008,14 +1045,18 @@ addSlider(worldPage, 3, "Atmosphere Haze", 0, 10, 0, function(v)
 end)
 
 addToggleRow(worldPage, 4, "Freeze Time of Day", false, function(state)
-	-- Holds ClockTime steady against any other script changing it.
-	worldPage:SetAttribute("FreezeTime", state)
+	timeFrozen = state
+	if state then
+		frozenClockTime = Lighting.ClockTime -- snapshot the value to hold
+	end
 end)
 
+-- Re-applies the snapshot each frame, overriding any day/night script. The
+-- whole body is skipped (single boolean check) when freeze is off, so there's
+-- no per-frame cost while idle.
 RunService.Heartbeat:Connect(function()
-	if worldPage:GetAttribute("FreezeTime") then
-		-- holds ClockTime steady against any other script changing it
-		Lighting.ClockTime = Lighting.ClockTime
+	if timeFrozen then
+		Lighting.ClockTime = frozenClockTime
 	end
 end)
 
@@ -1100,11 +1141,12 @@ addButtonRow(extrasPage, 4, {
 		letterboxLayer.Visible = false
 		nameplatesHidden = false
 		forEachHumanoid(function(h) setNameplateVisible(h, true) end)
+		timeFrozen = false
 		Lighting.ClockTime = 14
+		frozenClockTime = 14
 		Workspace.CurrentCamera.FieldOfView = 70
 		local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 		if atmosphere then atmosphere.Haze = 0 end
-		worldPage:SetAttribute("FreezeTime", false)
 	end },
 })
 
@@ -1119,6 +1161,10 @@ local function setHubOpen(open)
 end
 
 launcher.Activated:Connect(function()
+	if launcherDragged then
+		launcherDragged = false -- this "click" was the end of a drag; ignore it
+		return
+	end
 	setHubOpen(not hub.Visible)
 end)
 closeBtn.Activated:Connect(function()
@@ -1126,10 +1172,13 @@ closeBtn.Activated:Connect(function()
 end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
+	-- Ignore keystrokes the game already consumed (e.g. typing in chat or a
+	-- TextBox) so "p" / "`" in a message box doesn't trigger the hub.
+	if processed then return end
 	if input.UserInputType == Enum.UserInputType.Keyboard then
 		if input.KeyCode == Enum.KeyCode.P then
 			fcToggle()
-		elseif input.KeyCode == Enum.KeyCode.Backquote and not processed then
+		elseif input.KeyCode == Enum.KeyCode.Backquote then
 			setHubOpen(not hub.Visible)
 		end
 	end
