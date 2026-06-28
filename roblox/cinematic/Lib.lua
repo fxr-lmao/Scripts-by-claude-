@@ -12,7 +12,12 @@ local Players           = game:GetService("Players")
 local StarterGui        = game:GetService("StarterGui")
 local GuiService        = game:GetService("GuiService")
 
+-- Resolve LocalPlayer defensively so the hub is safe to auto-execute before the
+-- player has fully loaded in.
 local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+	LocalPlayer = Players:GetPropertyChangedSignal("LocalPlayer"):Wait() and Players.LocalPlayer
+end
 local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
 
 local Lib = {}
