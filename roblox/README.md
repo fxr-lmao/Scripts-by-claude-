@@ -34,3 +34,7 @@ Roblox Luau scripts. Unless noted otherwise, each is a **LocalScript** meant for
 
 Purely client-side — it only moves your camera, never your character, and uses
 the supported `SetCoreGuiEnabled` / `SetCore` / `GuiService` APIs to hide UI.
+
+While the free cam is active, character controls are disabled via the
+`PlayerModule`, so moving the joystick (or pressing WASD) flies the camera
+**without walking your avatar around**. Controls are restored on exit.

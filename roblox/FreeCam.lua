@@ -78,6 +78,10 @@ local touchUp, touchDown = false, false
 local hiddenScreenGuis = {}
 local savedCoreGui = {}
 
+-- cached reference to the PlayerModule controls so we can stop the character
+-- from walking while the free cam is active (and re-enable it on exit).
+local playerControls = nil
+
 local connections = {}
 
 ------------------------------------------------------------------------
@@ -85,6 +89,37 @@ local connections = {}
 ------------------------------------------------------------------------
 local function isMobile()
 	return UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+end
+
+-- Fetch (and cache) the default character controls object. This is the
+-- supported way to suspend movement input: while disabled, neither WASD nor
+-- the default mobile thumbstick will move the avatar, and the default touch
+-- controls are hidden so they can't fight our custom on-screen stick.
+local function getPlayerControls()
+	if playerControls then return playerControls end
+	local ok, controls = pcall(function()
+		local playerScripts = LocalPlayer:WaitForChild("PlayerScripts", 5)
+		if not playerScripts then return nil end
+		local playerModule = playerScripts:WaitForChild("PlayerModule", 5)
+		if not playerModule then return nil end
+		return require(playerModule):GetControls()
+	end)
+	if ok and controls then
+		playerControls = controls
+	end
+	return playerControls
+end
+
+local function setCharacterMovementEnabled(allowMovement)
+	local controls = getPlayerControls()
+	if not controls then return end
+	pcall(function()
+		if allowMovement then
+			controls:Enable()
+		else
+			controls:Disable()
+		end
+	end)
 end
 
 local function track(conn)
@@ -518,6 +553,10 @@ function enterFreeCam()
 
 	camera.CameraType = Enum.CameraType.Scriptable
 
+	-- Freeze the character: stop WASD / the default mobile stick from walking
+	-- the avatar around while we fly the camera.
+	setCharacterMovementEnabled(false)
+
 	-- Hide everything for the clean shot.
 	setAllUIVisible(false)
 	mobileControls.Visible = true
@@ -549,6 +588,9 @@ function exitFreeCam()
 	-- Restore mouse.
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
+
+	-- Give character movement back.
+	setCharacterMovementEnabled(true)
 
 	-- Disconnect runtime handlers.
 	pcall(function() RunService:UnbindFromRenderStep("FreeCamUpdate") end)
