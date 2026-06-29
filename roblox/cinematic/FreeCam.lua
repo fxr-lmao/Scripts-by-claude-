@@ -73,7 +73,7 @@ return function(ctx, Lib)
 	-- Speed sliders (tab + on-screen overlay) are kept in sync; scroll updates
 	-- both. Forward-declared so the input/render/enter/exit handlers can reach
 	-- them even though the overlay is built further down.
-	local tabSpeedSlider, speedSlider, speedOverlay
+	local tabSpeedSlider, speedSlider, speedOverlay, cleanShotRow
 	local function updateSpeedUI(v)
 		if tabSpeedSlider then tabSpeedSlider.set(v, false) end
 		if speedSlider then speedSlider.set(v, false) end
@@ -193,6 +193,7 @@ return function(ctx, Lib)
 		ctx.launcher.Visible = false
 		if exitButton then exitButton.Visible = true end
 		if speedOverlay then speedOverlay.Visible = true end
+		if cleanShotRow then cleanShotRow.Visible = true end
 		if fcMobileLayer then fcMobileLayer.Visible = true end
 		setButtonState()
 
@@ -213,6 +214,7 @@ return function(ctx, Lib)
 		ctx.launcher.Visible = true
 		if exitButton then exitButton.Visible = false end
 		if speedOverlay then speedOverlay.Visible = false end
+		if cleanShotRow then cleanShotRow.Visible = false end
 		if fcMobileLayer then fcMobileLayer.Visible = false end
 		setButtonState()
 
@@ -323,6 +325,56 @@ return function(ctx, Lib)
 	local gridToggle = Lib.addToggleRow(page, 4, "Framing Grid (rule of thirds)", false, function(state)
 		gridLayer.Visible = state
 	end)
+
+	-- "Clean shot" self-timer: one tap hides every Mirage overlay (exit button,
+	-- speed bar, mobile pad, framing grid, this row) for N seconds, then restores
+	-- them — for grabbing a screenshot/clip with nothing on screen. Especially
+	-- handy on mobile, where there's no quick way to momentarily hide the UI.
+	cleanShotRow = make("Frame", {
+		Name = "FreeCamCleanShot",
+		Size = UDim2.new(0, 244, 0, 30),
+		Position = UDim2.new(0.5, -122, 0, 110),
+		BackgroundTransparency = 1,
+		Visible = false,
+	}, ctx.gui)
+	make("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, cleanShotRow)
+
+	local function cleanShot(seconds)
+		if not FC.enabled then return end
+		-- Build the list without nils (fcMobileLayer is nil on desktop).
+		local overlays = { exitButton, speedOverlay, gridLayer, cleanShotRow }
+		if fcMobileLayer then table.insert(overlays, fcMobileLayer) end
+		local prev = {}
+		for _, obj in ipairs(overlays) do
+			prev[obj] = obj.Visible
+			obj.Visible = false
+		end
+		task.delay(seconds, function()
+			if not FC.enabled then return end -- exited during the window
+			for _, obj in ipairs(overlays) do obj.Visible = prev[obj] end
+		end)
+	end
+
+	for _, secs in ipairs({ 3, 5, 10, 30 }) do
+		local b = make("TextButton", {
+			Size = UDim2.new(0, 56, 1, 0),
+			BackgroundColor3 = THEME.Panel,
+			BackgroundTransparency = 0.2,
+			TextColor3 = THEME.Text,
+			Font = Lib.hubFont,
+			TextSize = 13,
+			Text = secs .. "s",
+			AutoButtonColor = true,
+			LayoutOrder = secs,
+		}, cleanShotRow)
+		corner(b, 6)
+		b.Activated:Connect(function() cleanShot(secs) end)
+	end
 
 	-- Smooth / cinematic flight: momentum so movement glides instead of snapping.
 	Lib.addToggleRow(page, 5, "Smooth Flight (cinematic glide)", false, function(state)
