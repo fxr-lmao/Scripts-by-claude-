@@ -83,10 +83,11 @@ as well as via the scrollbar.
   them onto your character; `ApplyDescription` is server-only in many games) plus
   Stealth/Noob presets that recolour your parts directly, and a Ghost invis —
   **animation speed** (reads the Animator's tracks; with an
-  option to sync to the World timelapse), **animation FastFlags**, an **FPS
-  boost** that strips effects (+ FPS cap), and **anti-idle** to dodge the AFK
-  kick. The FFlags / FPS cap / anti-idle paths use executor APIs and quietly
-  no-op where unsupported (e.g. in Studio).
+  option to sync to the World timelapse), an **animation pack** that swaps your
+  walk/run/idle/jump gait via the Animate script (Default/Ninja/Zombie/Werewolf,
+  no FastFlags), an **FPS boost** that strips effects (+ FPS cap), and
+  **anti-idle** to dodge the AFK kick. The FPS cap / anti-idle paths use executor
+  APIs and quietly no-op where unsupported (e.g. in Studio).
 - **Fun** — pass-the-time toys: **emotes** (default Roblox emotes + a custom
   animation-id field), a bouncing **DVD logo**, and **Pong vs a robot** you
   play right in the panel.

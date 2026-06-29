@@ -1,13 +1,12 @@
 --[[
 	cinematic/Client.lua
 	Client-side tools tab: skin changer (copy a user's avatar or a preset),
-	animation speed (with optional sync to the World timelapse), animation
-	FastFlags, a performance / FPS booster, and an anti-idle (no AFK kick).
+	animation speed (with optional sync to the World timelapse), an animation
+	pack / gait swap, a performance / FPS booster, and an anti-idle (no AFK kick).
 
-	Everything here is local-only. The skin changer, FFlags, FPS cap and
-	anti-idle lean on executor / client APIs (ApplyDescription, setfflag,
-	setfpscap, VirtualUser) — each is pcall-guarded so anything the runtime
-	doesn't support quietly no-ops instead of erroring.
+	Everything here is local-only. The FPS cap and anti-idle lean on executor /
+	client APIs (setfpscap, VirtualUser) — each is pcall-guarded so anything the
+	runtime doesn't support quietly no-ops instead of erroring.
 --]]
 
 local Players     = game:GetService("Players")
@@ -82,13 +81,19 @@ return function(ctx, Lib)
 		elseif type(appearance) == "table" then
 			items = appearance
 		end
+		-- Direct-parent everything, including accessories: parenting an Accessory
+		-- under a character with a Humanoid makes the engine auto-weld it via its
+		-- attachment. (Humanoid:AddAccessory was silently failing here, which is
+		-- why only colours/clothing came through and hats/accessories didn't.)
+		local counts = {}
 		for _, item in ipairs(items) do
-			if item:IsA("Accessory") then
-				pcall(function() humanoid:AddAccessory(item) end)
-			else
-				pcall(function() item.Parent = char end)
-			end
+			counts[item.ClassName] = (counts[item.ClassName] or 0) + 1
+			pcall(function() item.Parent = char end)
 		end
+		local summary = {}
+		for cls, n in pairs(counts) do table.insert(summary, n .. "x " .. cls) end
+		print("[Mirage] appearance items: "
+			.. (#summary > 0 and table.concat(summary, ", ") or "none returned"))
 		return true
 	end
 
@@ -273,43 +278,103 @@ return function(ctx, Lib)
 	end)
 
 	------------------------------------------------------------------
-	-- Animation FastFlags
+	-- Animation Pack (swap your gait — client-side, no FastFlags)
 	------------------------------------------------------------------
-	header(11, "Animation FFlags")
+	header(11, "Animation Pack")
 	Lib.addLabel(page, 12,
-		"Applies smoothing / full-quality animation FastFlags via your executor. "
-		.. "Most take effect after a rejoin. No-ops if unsupported.", 46)
+		"Swaps your walk / run / idle / jump animations via the Animate script — "
+		.. "purely client-side, no FastFlags. Default restores yours. (Some "
+		.. "executors sanitise custom animation ids; check the console if a pack "
+		.. "doesn't take.)", 64)
 
-	local fflagStatus = Lib.addLabel(page, 13, "", 18)
+	local animPackStatus = Lib.addLabel(page, 13, "", 18)
 
-	-- Community animation FastFlags: keep characters animating at full quality
-	-- regardless of distance and smooth interpolation. Unknown names just fail
-	-- the per-flag pcall, so the list is safe to be generous.
-	local ANIM_FFLAGS = {
-		DFIntInterpolationNumFramesDelayed       = "2",
-		FIntAnimationLodFacsDistanceMin          = "1000",
-		FIntAnimationLodFacsDistanceMax          = "5000",
-		FIntAnimationLodRenderDistanceMin        = "1000",
-		FIntAnimationLodRenderDistanceMax        = "5000",
-		FIntPlayerCharacterDistanceToAnimateFully = "10000",
-		FFlagAnimationWeightedBlendFix           = "true",
-		DFFlagSimNoRotationDriftWithoutThrottling = "true",
+	-- folder.child → asset id, matching the default R15 Animate script's nodes.
+	-- We set each AnimationId then restart Animate so it reloads from them.
+	local PACKS = {
+		Ninja = {
+			["idle.Animation1"] = 656117400, ["idle.Animation2"] = 656118341,
+			["walk.WalkAnim"] = 656121766, ["run.RunAnim"] = 656118852,
+			["jump.JumpAnim"] = 656117878, ["fall.FallAnim"] = 656115606,
+			["climb.ClimbAnim"] = 656114359,
+		},
+		Zombie = {
+			["idle.Animation1"] = 616158929, ["idle.Animation2"] = 616160636,
+			["walk.WalkAnim"] = 616168032, ["run.RunAnim"] = 616163682,
+			["jump.JumpAnim"] = 616161997, ["fall.FallAnim"] = 616157476,
+			["climb.ClimbAnim"] = 616156119,
+		},
+		Werewolf = {
+			["idle.Animation1"] = 1083445855, ["idle.Animation2"] = 1083450166,
+			["walk.WalkAnim"] = 1083473930, ["run.RunAnim"] = 1083462077,
+			["jump.JumpAnim"] = 1083455352, ["fall.FallAnim"] = 1083443587,
+			["climb.ClimbAnim"] = 1083439238,
+		},
 	}
 
-	Lib.addButtonRow(page, 14, {
-		{ text = "Apply FFlags", width = 120, callback = function()
-			local applied = 0
-			for name, value in pairs(ANIM_FFLAGS) do
-				-- setfflag is an executor global; the pcall both calls it and
-				-- guards the case where it doesn't exist at all.
-				if pcall(function() setfflag(name, value) end) then
-					applied += 1
+	-- Snapshot the current (default) ids so "Default" can restore them; recapture
+	-- on respawn since the Animate script is rebuilt with a fresh set.
+	local defaultIds = {}
+	local function captureDefault()
+		local char = getCharacter()
+		local animate = char and char:FindFirstChild("Animate")
+		if not animate then return end
+		defaultIds = {}
+		for _, folder in ipairs({ "idle", "walk", "run", "jump", "fall", "climb" }) do
+			local f = animate:FindFirstChild(folder)
+			if f then
+				for _, a in ipairs(f:GetChildren()) do
+					if a:IsA("Animation") then defaultIds[folder .. "." .. a.Name] = a.AnimationId end
 				end
 			end
-			fflagStatus.Text = applied > 0
-				and ("Applied " .. applied .. " FFlags (rejoin to take full effect)")
-				or "FastFlags not supported by this executor"
-		end },
+		end
+	end
+	captureDefault()
+	LocalPlayer.CharacterAdded:Connect(function()
+		task.wait(1)
+		captureDefault()
+	end)
+
+	local function applyPack(map, isDefault)
+		local char = getCharacter()
+		local animate = char and char:FindFirstChild("Animate")
+		if not animate then return false, "no Animate script (R6 / custom rig)" end
+		for path, id in pairs(map) do
+			local folder, child = path:match("^(%w+)%.(%w+)$")
+			local f = folder and animate:FindFirstChild(folder)
+			local a = f and f:FindFirstChild(child)
+			if a and a:IsA("Animation") then
+				local assetId = isDefault and id or ("rbxassetid://" .. id)
+				pcall(function() a.AnimationId = assetId end)
+			end
+		end
+		-- restart Animate so the new ids are reloaded
+		pcall(function()
+			animate.Disabled = true
+			task.wait(0.05)
+			animate.Disabled = false
+		end)
+		return true
+	end
+
+	local function pickPack(name)
+		task.spawn(function()
+			local ok, err
+			if name == "Default" then
+				ok, err = applyPack(defaultIds, true)
+			else
+				ok, err = applyPack(PACKS[name], false)
+			end
+			animPackStatus.Text = ok and ("Pack: " .. name) or ("Pack failed: " .. tostring(err))
+			print("[Mirage] anim pack " .. name .. (ok and " applied" or (" failed: " .. tostring(err))))
+		end)
+	end
+
+	Lib.addButtonRow(page, 14, {
+		{ text = "Default",  width = 88, callback = function() pickPack("Default") end },
+		{ text = "Ninja",    width = 88, callback = function() pickPack("Ninja") end },
+		{ text = "Zombie",   width = 88, callback = function() pickPack("Zombie") end },
+		{ text = "Werewolf", width = 88, callback = function() pickPack("Werewolf") end },
 	})
 
 	------------------------------------------------------------------
