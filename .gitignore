@@ -17,3 +17,7 @@ Thumbs.db
 # Python build cache
 __pycache__/
 *.pyc
+
+# stray python wheels / sdists (build tooling)
+*.whl
+*.tar.gz
