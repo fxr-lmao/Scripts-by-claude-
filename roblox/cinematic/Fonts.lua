@@ -64,16 +64,13 @@ return function(ctx, Lib)
 		end
 	end
 
-	-- Everywhere text can live: the player's UI (which includes our hub), the
-	-- game's CoreGui, and in-world Billboard/Surface GUIs parented under Workspace
-	-- (nameplates, overhead labels, signs…). That's why the old version "missed"
-	-- fonts — it only walked PlayerGui ScreenGuis.
+	-- The game's own text: the player's UI (which includes our hub) and in-world
+	-- Billboard/Surface GUIs under Workspace (nameplates, overhead labels, signs…).
+	-- We deliberately do NOT touch CoreGui — that's Roblox's own system UI (the
+	-- leave/settings menu, player list, chat frame), and re-fonting it breaks its
+	-- layout. Chat is handled the supported way via TextChatService below.
 	local function collectRoots()
-		local roots = { PlayerGui, Workspace }
-		local core
-		pcall(function() core = game:GetService("CoreGui") end)
-		if core then table.insert(roots, core) end
-		return roots
+		return { PlayerGui, Workspace }
 	end
 
 	local function applyAll(fontEnum)
