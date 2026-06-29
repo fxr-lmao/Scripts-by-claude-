@@ -70,9 +70,11 @@ as well as via the scrollbar.
 - **Fonts** — click a font (35+ options) to re-skin the hub, every other UI
   under `PlayerGui`, and chat (window + bubbles via `TextChatService`). Inert
   until you pick one, then per-root `DescendantAdded` listeners catch new UI —
-  no polling loops. Covers **PlayerGui, CoreGui, and in-world Billboard/Surface
-  GUIs** under Workspace (nameplates, signs…), so it reaches fonts the old pass
-  missed. The font-list buttons keep their own font so each stays a live preview.
+  no polling loops. Covers **PlayerGui and in-world Billboard/Surface GUIs** under
+  Workspace (nameplates, signs…) plus chat via `TextChatService`. It deliberately
+  leaves Roblox's own **CoreGui** (leave/settings menu, player list) alone — re-
+  fonting that breaks its layout. The font-list buttons keep their own font so
+  each stays a live preview.
 - **World** — time-of-day slider + Dawn/Noon/Sunset/Night buttons, camera FOV,
   atmosphere haze, a freeze-time toggle that genuinely holds the clock, a
   timelapse toggle (with speed) that **accelerates** the sun smoothly up to speed
@@ -84,8 +86,10 @@ as well as via the scrollbar.
   Stealth/Noob presets that recolour your parts directly, and a Ghost invis —
   **animation speed** (reads the Animator's tracks; with an
   option to sync to the World timelapse), an **animation pack** that swaps your
-  walk/run/idle/jump gait via the Animate script (Default/Ninja/Zombie/Werewolf,
-  no FastFlags), an **FPS boost** that strips effects (+ FPS cap), and
+  walk/run/idle/jump gait via the Animate script (Default + 13 packs — Ninja,
+  Zombie, Werewolf, Robot, Astronaut, Mage, Levitation, Pirate, Stylish,
+  Superhero, Toy, Bubbly, Oldschool — no FastFlags), an **FPS boost** that strips
+  effects (+ FPS cap), and
   **anti-idle** to dodge the AFK kick. The FPS cap / anti-idle paths use executor
   APIs and quietly no-op where unsupported (e.g. in Studio).
 - **Fun** — pass-the-time toys: **emotes** (default Roblox emotes + a custom
