@@ -15,13 +15,25 @@ local Lighting = game:GetService("Lighting")
 return function(ctx, Lib)
 	local page = ctx.addTab("Shaders", 2)
 
-	local fx = {
-		colorCorrection = Lib.make("ColorCorrectionEffect", { Name = "CinematicHub_ColorCorrection" }, Lighting),
-		bloom           = Lib.make("BloomEffect",           { Name = "CinematicHub_Bloom" }, Lighting),
-		blur            = Lib.make("BlurEffect",            { Name = "CinematicHub_Blur", Size = 0 }, Lighting),
-		dof             = Lib.make("DepthOfFieldEffect",    { Name = "CinematicHub_DepthOfField" }, Lighting),
-		sunRays         = Lib.make("SunRaysEffect",         { Name = "CinematicHub_SunRays", Intensity = 0 }, Lighting),
+	-- Post-effects, kept rebuildable: some games / anti-cheats clear non-whitelisted
+	-- children of Lighting, which would silently kill the shaders. We keep handles
+	-- and recreate any that go missing (see ensureEffects below).
+	local EFFECT_CLASSES = {
+		colorCorrection = "ColorCorrectionEffect",
+		bloom = "BloomEffect",
+		blur = "BlurEffect",
+		dof = "DepthOfFieldEffect",
+		sunRays = "SunRaysEffect",
 	}
+	local fx = {}
+	local currentPreset = "Default"
+	local function buildEffect(key)
+		local e = Lib.make(EFFECT_CLASSES[key], { Name = "Mirage_" .. key, Enabled = true }, Lighting)
+		if key == "blur" then e.Size = 0 end
+		if key == "sunRays" then e.Intensity = 0 end
+		fx[key] = e
+	end
+	for key in pairs(EFFECT_CLASSES) do buildEffect(key) end
 
 	-- A low, fixed bloom threshold so the Bloom slider always produces a
 	-- visible glow regardless of the game's brightness.
@@ -60,21 +72,14 @@ return function(ctx, Lib)
 	end
 	local function setTech(tech)
 		snapshotRealism()
-		local ok, err = pcall(function() Lighting.Technology = tech end)
-		-- Read back: if the game locks Technology, "now" won't match the request.
-		print(("[Mirage] lighting tech → requested %s, now %s%s"):format(
-			tostring(tech.Name or tech), tostring(Lighting.Technology.Name),
-			ok and "" or (" (error: " .. tostring(err) .. ")")))
+		pcall(function() Lighting.Technology = tech end)
 	end
 	local function setReflections(v)
 		snapshotRealism()
-		local ok, err = pcall(function()
+		pcall(function()
 			Lighting.EnvironmentSpecularScale = v
 			Lighting.EnvironmentDiffuseScale = v
 		end)
-		print(("[Mirage] reflections → requested %.2f, now spec %.2f / diff %.2f%s"):format(
-			v, Lighting.EnvironmentSpecularScale, Lighting.EnvironmentDiffuseScale,
-			ok and "" or (" (error: " .. tostring(err) .. ")")))
 	end
 	-- Shared with the World tab's haze: reuse the existing Atmosphere if present.
 	local function getAtmosphere()
@@ -167,6 +172,28 @@ return function(ctx, Lib)
 	-- would otherwise glow/blur the screen the instant they're parented).
 	PRESETS.Default()
 
+	-- Keep the effects alive: if the game clears/disables them, recreate and
+	-- re-apply the active preset. Cheap (a parent/enabled check once a second).
+	local function ensureEffects()
+		local recreated = false
+		for key in pairs(EFFECT_CLASSES) do
+			local e = fx[key]
+			if not e or not e.Parent then
+				buildEffect(key)
+				recreated = true
+			elseif not e.Enabled then
+				e.Enabled = true
+			end
+		end
+		if recreated and PRESETS[currentPreset] then pcall(PRESETS[currentPreset]) end
+	end
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			pcall(ensureEffects)
+		end
+	end)
+
 	local presetOrder = {
 		"Default", "Realistic", "Ultra", "Cinematic",
 		"Noir", "Warm", "Cold", "Dreamy",
@@ -175,14 +202,22 @@ return function(ctx, Lib)
 	local defs = {}
 	for _, name in ipairs(presetOrder) do
 		defs[#defs + 1] = { text = name, width = 84, callback = function()
+			currentPreset = name
 			PRESETS[name]()
-			-- Read the values back so we can confirm the effects actually took
-			-- (and whether the game is overriding our post-FX / lighting).
 			local atmo = Lighting:FindFirstChildOfClass("Atmosphere")
 			print(("[Mirage] shader '%s' → bloom %.2f, bright %.2f, sat %.2f, sunrays %.2f, atmo %.2f, tech %s")
 				:format(name, fx.bloom.Intensity, fx.colorCorrection.Brightness,
 					fx.colorCorrection.Saturation, fx.sunRays.Intensity,
 					atmo and atmo.Density or 0, tostring(Lighting.Technology.Name)))
+			-- A second later, re-read to see if the game reverted or DESTROYED our
+			-- effects (cc-parent = nil means they were cleared from Lighting).
+			task.delay(1, function()
+				print(("[Mirage] '%s' +1s → bloom %.2f, sat %.2f, cc-enabled %s, cc-parent %s, tech %s")
+					:format(name, fx.bloom.Intensity, fx.colorCorrection.Saturation,
+						tostring(fx.colorCorrection.Enabled),
+						tostring(fx.colorCorrection.Parent and fx.colorCorrection.Parent.Name),
+						tostring(Lighting.Technology.Name)))
+			end)
 		end }
 	end
 
@@ -208,10 +243,16 @@ return function(ctx, Lib)
 	Lib.addSlider(page, order, "Sun Rays", 0, 1, 0, function(v) fx.sunRays.Intensity = v end); order += 1
 
 	Lib.addLabel(page, order, "Realism (Roblox renderer — built-in ceiling)"); order += 1
+	local function techBtn(label, tech)
+		return { text = label, width = 84, callback = function()
+			setTech(tech)
+			print(("[Mirage] tech → requested %s, now %s"):format(tech.Name, tostring(Lighting.Technology.Name)))
+		end }
+	end
 	Lib.addButtonRow(page, order, {
-		{ text = "Voxel",  width = 84, callback = function() setTech(Enum.Technology.Voxel) end },
-		{ text = "Shadow", width = 84, callback = function() setTech(Enum.Technology.ShadowMap) end },
-		{ text = "Future", width = 84, callback = function() setTech(Enum.Technology.Future) end },
+		techBtn("Voxel", Enum.Technology.Voxel),
+		techBtn("Shadow", Enum.Technology.ShadowMap),
+		techBtn("Future", Enum.Technology.Future),
 	}); order += 1
 	Lib.addSlider(page, order, "Reflections", 0, 1, 0, function(v) setReflections(v) end); order += 1
 	Lib.addSlider(page, order, "Atmosphere Density", 0, 1, 0, function(v)
