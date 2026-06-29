@@ -49,38 +49,47 @@ return function(ctx, Lib)
 
 	local skinStatus = Lib.addLabel(page, 3, "", 18)
 
-	-- The avatar we want held on this character. Re-applied on respawn so a
-	-- server-driven respawn doesn't silently wipe it.
-	local desiredDescription = nil
+	-- The avatar we want held on this character; re-applied on respawn.
+	local desiredUserId = nil
 
-	local function applyDescription(desc)
+	-- Fully client-side avatar copy. ApplyDescription is blocked on the client in
+	-- many games ("can only be called by the backend server"), so instead we pull
+	-- the target's appearance instances (clothing, accessories, body colours,
+	-- meshes) and parent them onto the local character ourselves. Visible only to
+	-- you — the server never sees it.
+	local function copyAppearance(userId)
+		local char = getCharacter()
 		local humanoid = getHumanoid()
-		if not humanoid then return false, "no character/humanoid yet" end
-		local ok, err = pcall(function() humanoid:ApplyDescription(desc) end)
-		return ok, err
-	end
+		if not char or not humanoid then return false, "no character yet" end
+		local ok, appearance = pcall(function()
+			return Players:GetCharacterAppearanceAsync(userId)
+		end)
+		if not ok then return false, appearance end
 
-	local function setSkin(desc)
-		desiredDescription = desc
-		return applyDescription(desc)
-	end
-
-	LocalPlayer.CharacterAdded:Connect(function(char)
-		if not desiredDescription then return end
-		local h = char:WaitForChild("Humanoid", 5)
-		if h then
-			task.wait(0.3) -- let the default appearance load first, then override
-			pcall(function() h:ApplyDescription(desiredDescription) end)
+		-- Strip current cosmetics so the copy doesn't stack on top.
+		for _, c in ipairs(char:GetChildren()) do
+			if c:IsA("Accessory") or c:IsA("Shirt") or c:IsA("Pants")
+				or c:IsA("ShirtGraphic") or c:IsA("BodyColors") or c:IsA("CharacterMesh") then
+				c:Destroy()
+			end
 		end
-	end)
 
-	local function currentDescription()
-		local humanoid = getHumanoid()
-		if humanoid then
-			local ok, d = pcall(function() return humanoid:GetAppliedDescription() end)
-			if ok and d then return d end
+		-- GetCharacterAppearanceAsync returns a Model of instances (older builds
+		-- may hand back a plain array) — support both.
+		local items = {}
+		if typeof(appearance) == "Instance" then
+			items = appearance:GetChildren()
+		elseif type(appearance) == "table" then
+			items = appearance
 		end
-		return Instance.new("HumanoidDescription")
+		for _, item in ipairs(items) do
+			if item:IsA("Accessory") then
+				pcall(function() humanoid:AddAccessory(item) end)
+			else
+				pcall(function() item.Parent = char end)
+			end
+		end
+		return true
 	end
 
 	Lib.addTextInput(page, 4, "Username or UserId…", "Apply", function(text)
@@ -88,28 +97,32 @@ return function(ctx, Lib)
 		if text == "" then return end
 		skinStatus.Text = "Loading " .. text .. "…"
 		task.spawn(function()
-			-- Surface the real failure point so issues are diagnosable.
-			local ok, desc = pcall(function()
-				local userId = tonumber(text)
-				if not userId then userId = Players:GetUserIdFromNameAsync(text) end
-				local d = Players:GetHumanoidDescriptionFromUserId(userId)
-				if not d then error("no description returned") end
-				return d
+			local ok, userId = pcall(function()
+				return tonumber(text) or Players:GetUserIdFromNameAsync(text)
 			end)
-			if not ok then
-				skinStatus.Text = "Lookup failed: " .. tostring(desc)
-				warn("[Mirage] skin lookup failed: " .. tostring(desc))
+			if not ok or not userId then
+				skinStatus.Text = "User lookup failed: " .. tostring(userId)
+				warn("[Mirage] skin lookup failed: " .. tostring(userId))
 				return
 			end
-			local applied, err = setSkin(desc)
+			desiredUserId = userId
+			local applied, err = copyAppearance(userId)
 			if applied then
 				skinStatus.Text = "Applied avatar: " .. text
-				print("[Mirage] skin applied: " .. text)
+				print("[Mirage] skin (appearance) applied: " .. text)
 			else
 				skinStatus.Text = "Apply failed: " .. tostring(err)
 				warn("[Mirage] skin apply failed: " .. tostring(err))
 			end
 		end)
+	end)
+
+	-- Re-apply the copied avatar after a respawn so it persists.
+	LocalPlayer.CharacterAdded:Connect(function(char)
+		if not desiredUserId then return end
+		char:WaitForChild("Humanoid", 5)
+		task.wait(1) -- let the default body stream in first, then overwrite
+		copyAppearance(desiredUserId)
 	end)
 
 	-- Presets color the local character's parts directly. Purely client-side and

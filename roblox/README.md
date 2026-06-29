@@ -55,7 +55,9 @@ as well as via the scrollbar.
 
 - **Free Cam** — detaches the camera and hides all UI for a clean shot; the
   launcher is hidden while flying, with an always-there on-screen Exit button.
-  Includes a **rule-of-thirds framing grid** toggle for composing shots.
+  Includes a **rule-of-thirds framing grid** toggle, and a **clean-shot timer**
+  (3 / 5 / 10 / 30 s buttons while flying) that hides every overlay for that long
+  then restores it — for grabbing footage with nothing on screen.
 - **Shaders** — preset buttons (Default, **Realistic**, **Ultra**, Cinematic,
   Noir, Warm, Cold, Dreamy, Horror, Vintage, Vaporwave, Cyberpunk) plus manual
   Bloom / Blur / Brightness / Contrast / Saturation / Sun Rays sliders. A
@@ -76,8 +78,11 @@ as well as via the scrollbar.
   timelapse toggle (with speed) that **accelerates** the sun smoothly up to speed
   (and coasts back down) rather than snapping, and a **Fullbright** toggle that
   flattens lighting (snapshots + restores the originals).
-- **Client** — local-only tools: **skin changer** (copy any user's avatar by
-  username/ID, or Stealth/Noob/Ghost presets), **animation speed** (with an
+- **Client** — local-only tools: **skin changer** — copies a user's avatar by
+  username/ID fully client-side (pulls their appearance instances and parents
+  them onto your character; `ApplyDescription` is server-only in many games) plus
+  Stealth/Noob presets that recolour your parts directly, and a Ghost invis —
+  **animation speed** (reads the Animator's tracks; with an
   option to sync to the World timelapse), **animation FastFlags**, an **FPS
   boost** that strips effects (+ FPS cap), and **anti-idle** to dodge the AFK
   kick. The FFlags / FPS cap / anti-idle paths use executor APIs and quietly
