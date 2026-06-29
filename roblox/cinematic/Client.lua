@@ -81,17 +81,20 @@ return function(ctx, Lib)
 		elseif type(appearance) == "table" then
 			items = appearance
 		end
-		-- This game neither honours AddAccessory nor auto-welds on parent, so we
-		-- weld each accessory ourselves: match its Handle's attachment to the
-		-- same-named attachment on the character and create the weld by hand
-		-- (exactly what the engine does internally).
+		-- Weld each accessory ourselves (this game neither honours AddAccessory nor
+		-- auto-welds on parent): match the Handle's attachment to the same-named
+		-- character attachment and build the weld by hand. The Handle is made
+		-- massless + non-colliding so it can never knock the character around.
 		local function weldAccessory(accessory)
 			local handle = accessory:FindFirstChild("Handle")
-			if not handle then accessory.Parent = char return end
-			for _, w in ipairs(handle:GetChildren()) do
-				if w:IsA("Weld") or w:IsA("Motor6D") or w:IsA("ManualWeld") then w:Destroy() end
+			if handle then
+				pcall(function() handle.Massless = true end)
+				pcall(function() handle.CanCollide = false end)
+				for _, w in ipairs(handle:GetChildren()) do
+					if w:IsA("Weld") or w:IsA("Motor6D") or w:IsA("ManualWeld") then w:Destroy() end
+				end
 			end
-			local accAtt = handle:FindFirstChildWhichIsA("Attachment")
+			local accAtt = handle and handle:FindFirstChildWhichIsA("Attachment")
 			local charAtt
 			if accAtt then
 				for _, d in ipairs(char:GetDescendants()) do
@@ -102,7 +105,7 @@ return function(ctx, Lib)
 				end
 			end
 			accessory.Parent = char
-			if accAtt and charAtt and charAtt.Parent then
+			if handle and accAtt and charAtt and charAtt.Parent then
 				local weld = Instance.new("Weld")
 				weld.Name = "MirageAccessoryWeld"
 				weld.Part0 = handle
@@ -110,19 +113,23 @@ return function(ctx, Lib)
 				weld.C0 = accAtt.CFrame
 				weld.C1 = charAtt.CFrame
 				weld.Parent = handle
-				pcall(function() handle.Massless = true end)
-				pcall(function() handle.CanCollide = false end)
 			end
 		end
 
+		-- Only bring over actual cosmetics. The previous version parented
+		-- EVERYTHING the API returned — including a loose collidable MeshPart and
+		-- metadata Folders/Values — which dropped a physics part inside the rig
+		-- and killed the Humanoid. That was the "dying when changing avatar".
 		local counts = {}
 		for _, item in ipairs(items) do
 			counts[item.ClassName] = (counts[item.ClassName] or 0) + 1
 			if item:IsA("Accessory") then
 				pcall(weldAccessory, item)
-			else
+			elseif item:IsA("Shirt") or item:IsA("Pants") or item:IsA("ShirtGraphic")
+				or item:IsA("BodyColors") or item:IsA("CharacterMesh") then
 				pcall(function() item.Parent = char end)
 			end
+			-- MeshPart / Folder / Bool|NumberValue etc. are intentionally skipped.
 		end
 		local summary = {}
 		for cls, n in pairs(counts) do table.insert(summary, n .. "x " .. cls) end
@@ -131,17 +138,23 @@ return function(ctx, Lib)
 		return true
 	end
 
+	-- Debounce: clicking the button while the box is focused fires both the
+	-- button AND the box's FocusLost, double-applying (double strip+rebuild) — a
+	-- good way to trip the character. Ignore overlapping/rapid submits.
+	local skinBusy = false
 	Lib.addTextInput(page, 4, "Username or UserId…", "Apply", function(text)
 		text = (text or ""):gsub("%s+", "")
-		if text == "" then return end
+		if text == "" or skinBusy then return end
 		skinStatus.Text = "Loading " .. text .. "…"
 		task.spawn(function()
+			skinBusy = true
 			local ok, userId = pcall(function()
 				return tonumber(text) or Players:GetUserIdFromNameAsync(text)
 			end)
 			if not ok or not userId then
 				skinStatus.Text = "User lookup failed: " .. tostring(userId)
 				warn("[Mirage] skin lookup failed: " .. tostring(userId))
+				skinBusy = false
 				return
 			end
 			desiredUserId = userId
@@ -153,6 +166,8 @@ return function(ctx, Lib)
 				skinStatus.Text = "Apply failed: " .. tostring(err)
 				warn("[Mirage] skin apply failed: " .. tostring(err))
 			end
+			task.wait(0.5)
+			skinBusy = false
 		end)
 	end)
 
