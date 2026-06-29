@@ -86,10 +86,9 @@ as well as via the scrollbar.
   Stealth/Noob presets that recolour your parts directly, and a Ghost invis —
   **animation speed** (reads the Animator's tracks; with an
   option to sync to the World timelapse), an **animation pack** that swaps your
-  walk/run/idle/jump gait via the Animate script (Default + 13 packs — Ninja,
-  Zombie, Werewolf, Robot, Astronaut, Mage, Levitation, Pirate, Stylish,
-  Superhero, Toy, Bubbly, Oldschool — no FastFlags), an **FPS boost** that strips
-  effects (+ FPS cap), and
+  walk/run/idle/jump gait via the Animate script (Default + Ninja, Zombie,
+  Werewolf, Robot, Astronaut, Levitation, Mage, Pirate — no FastFlags), an **FPS
+  boost** that strips effects (+ FPS cap), and
   **anti-idle** to dodge the AFK kick. The FPS cap / anti-idle paths use executor
   APIs and quietly no-op where unsupported (e.g. in Studio).
 - **Fun** — pass-the-time toys: **emotes** (default Roblox emotes + a custom

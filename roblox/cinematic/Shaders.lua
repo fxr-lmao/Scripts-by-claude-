@@ -60,14 +60,21 @@ return function(ctx, Lib)
 	end
 	local function setTech(tech)
 		snapshotRealism()
-		pcall(function() Lighting.Technology = tech end)
+		local ok, err = pcall(function() Lighting.Technology = tech end)
+		-- Read back: if the game locks Technology, "now" won't match the request.
+		print(("[Mirage] lighting tech → requested %s, now %s%s"):format(
+			tostring(tech.Name or tech), tostring(Lighting.Technology.Name),
+			ok and "" or (" (error: " .. tostring(err) .. ")")))
 	end
 	local function setReflections(v)
 		snapshotRealism()
-		pcall(function()
+		local ok, err = pcall(function()
 			Lighting.EnvironmentSpecularScale = v
 			Lighting.EnvironmentDiffuseScale = v
 		end)
+		print(("[Mirage] reflections → requested %.2f, now spec %.2f / diff %.2f%s"):format(
+			v, Lighting.EnvironmentSpecularScale, Lighting.EnvironmentDiffuseScale,
+			ok and "" or (" (error: " .. tostring(err) .. ")")))
 	end
 	-- Shared with the World tab's haze: reuse the existing Atmosphere if present.
 	local function getAtmosphere()
@@ -167,7 +174,16 @@ return function(ctx, Lib)
 	}
 	local defs = {}
 	for _, name in ipairs(presetOrder) do
-		defs[#defs + 1] = { text = name, width = 84, callback = function() PRESETS[name]() end }
+		defs[#defs + 1] = { text = name, width = 84, callback = function()
+			PRESETS[name]()
+			-- Read the values back so we can confirm the effects actually took
+			-- (and whether the game is overriding our post-FX / lighting).
+			local atmo = Lighting:FindFirstChildOfClass("Atmosphere")
+			print(("[Mirage] shader '%s' → bloom %.2f, bright %.2f, sat %.2f, sunrays %.2f, atmo %.2f, tech %s")
+				:format(name, fx.bloom.Intensity, fx.colorCorrection.Brightness,
+					fx.colorCorrection.Saturation, fx.sunRays.Intensity,
+					atmo and atmo.Density or 0, tostring(Lighting.Technology.Name)))
+		end }
 	end
 
 	Lib.addLabel(page, 1, "Presets")

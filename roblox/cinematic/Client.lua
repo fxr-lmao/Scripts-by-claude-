@@ -156,13 +156,9 @@ return function(ctx, Lib)
 		end)
 	end)
 
-	-- Re-apply the copied avatar after a respawn so it persists.
-	LocalPlayer.CharacterAdded:Connect(function(char)
-		if not desiredUserId then return end
-		char:WaitForChild("Humanoid", 5)
-		task.wait(1) -- let the default body stream in first, then overwrite
-		copyAppearance(desiredUserId)
-	end)
+	-- NOTE: no auto re-apply on respawn. Some games (anti-cheat) reset the
+	-- character whenever it's modified; re-applying then just respawned it again
+	-- in a loop. Apply once per button press — re-press after a respawn if needed.
 
 	-- Presets color the local character's parts directly. Purely client-side and
 	-- immediate — unlike ApplyDescription, the game can't quietly revert it, and
@@ -333,22 +329,19 @@ return function(ctx, Lib)
 			["climb.ClimbAnim"] = climb,
 		}
 	end
-	-- Official Roblox animation-package ids (R15). Best-effort; a wrong id just
-	-- leaves that motion on default, and the Default button restores everything.
+	-- Official Roblox animation-package ids (R15). These are the classic, verified
+	-- packages (Ninja/Zombie/Werewolf confirmed in-game); unverified ones whose
+	-- ids failed to load were removed. A bad id just leaves that motion on default
+	-- and prints a load error, and Default restores everything.
 	local PACKS = {
 		Ninja      = pack(656117400, 656118341, 656121766, 656118852, 656117878, 656115606, 656114359),
 		Zombie     = pack(616158929, 616160636, 616168032, 616163682, 616161997, 616157476, 616156119),
 		Werewolf   = pack(1083445855, 1083450166, 1083473930, 1083462077, 1083455352, 1083443587, 1083439238),
 		Robot      = pack(616088211, 616089559, 616095330, 616091570, 616090535, 616087271, 616086904),
 		Astronaut  = pack(891621366, 891633237, 891667138, 891636393, 891627522, 891617961, 891609353),
-		Mage       = pack(707742142, 707855907, 707897309, 707861613, 707853694, 707844760, 707826056),
 		Levitation = pack(616006778, 616008087, 616013216, 616010382, 616008936, 616005863, 616003713),
+		Mage       = pack(707742142, 707855907, 707897309, 707861613, 707853694, 707844760, 707826056),
 		Pirate     = pack(750781874, 750782770, 750785693, 750783738, 750782230, 750780242, 750779492),
-		Stylish    = pack(1069977950, 1069987858, 1070017263, 1070001516, 1069984528, 1069973677, 1069946257),
-		Superhero  = pack(1510925809, 1510923170, 1510936671, 1510929263, 1510920302, 1510914848, 1510938553),
-		Toy        = pack(782841498, 782845736, 782843345, 782842708, 782847596, 782846268, 782843869),
-		Bubbly     = pack(910004836, 910009958, 910034870, 910025107, 910016857, 910001910, 909997997),
-		Oldschool  = pack(845397899, 845400520, 845403764, 845398858, 845398624, 845396048, 845392650),
 	}
 
 	-- Snapshot the current (default) ids so "Default" can restore them; recapture
@@ -422,8 +415,7 @@ return function(ctx, Lib)
 	}, packGrid)
 
 	local packOrder = { "Default", "Ninja", "Zombie", "Werewolf", "Robot",
-		"Astronaut", "Mage", "Levitation", "Pirate", "Stylish", "Superhero",
-		"Toy", "Bubbly", "Oldschool" }
+		"Astronaut", "Levitation", "Mage", "Pirate" }
 	for i, name in ipairs(packOrder) do
 		local b = make("TextButton", {
 			BackgroundColor3 = THEME.PanelAlt,
